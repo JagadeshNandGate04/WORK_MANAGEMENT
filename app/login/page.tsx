@@ -35,7 +35,7 @@ export default function LoginPage() {
     if (result.success) {
       setSuccess(true);
       setTimeout(() => {
-        router.push("/admin/dashboard");
+        router.push("/dashboard");
       }, 700);
     } else {
       setError(result.message || "Invalid email or password.");
