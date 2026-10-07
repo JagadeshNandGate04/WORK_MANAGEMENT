@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarContext';
-import Image from 'next/image';
+import { useSelector } from '../store/hooks';
 
 /* ============================================================
    Refined 3D Cartoon Sticker Vector Icons
@@ -173,7 +173,19 @@ const NAV_ITEMS: NavItem[] = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { collapsed, setCollapsed } = useSidebar();
+  const user = useSelector((state) => state.auth.user);
+  const authWorkspace = useSelector((state) => state.auth.workspace);
+  const dashboardWorkspace = useSelector((state) => state.dashboard.data?.workspace);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const workspaceName = dashboardWorkspace?.name || authWorkspace?.name || 'Workspace';
+  const userName = user?.name?.trim() || user?.email?.split('@')[0] || 'Guest User';
+  const userInitials = userName
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  const userDesignation = user?.designation || user?.role || 'Team member';
 
   // Auto-collapse on smaller screens
   useEffect(() => {
@@ -204,15 +216,10 @@ export default function Sidebar() {
           <MenuIcon className="w-5 h-5" />
         </button>
 
-        <div className="relative h-11 w-36 overflow-hidden rounded-lg">
-          <Image
-            src="/logo.png"
-            alt="Nandgate-IT"
-            fill
-            sizes="144px"
-            className="object-cover"
-            priority
-          />
+        <div className="min-w-0 flex-1 text-center">
+          <span className="block truncate text-lg font-black tracking-wide text-emerald-800 [text-shadow:1px_2px_0_#a7f3d0,2px_3px_0_#d1fae5]" title={workspaceName}>
+            {workspaceName}
+          </span>
         </div>
 
         <div className="w-9" />
@@ -246,19 +253,20 @@ export default function Sidebar() {
             } px-4 py-2 border-b border-slate-100 flex-shrink-0`}
           >
             {!collapsed ? (
-              <div className="relative h-12 w-44 overflow-hidden rounded-lg">
-                <Image
-                  src="/logo.png"
-                  alt="Nandgate-IT"
-                  fill
-                  sizes="176px"
-                  className="object-cover"
-                  priority
-                />
+              <div className="min-w-0 flex-1 rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-2.5 shadow-sm">
+                <p className="truncate text-xl font-black leading-tight tracking-wide text-emerald-800 [text-shadow:1px_2px_0_#a7f3d0,2px_3px_0_#d1fae5]" title={workspaceName}>
+                  {workspaceName}
+                </p>
+                <p className="mt-1 text-[10px] font-extrabold uppercase tracking-[0.18em] text-emerald-700">
+                  Workspace
+                </p>
               </div>
             ) : (
-              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-sm shadow-xs shadow-emerald-500/30 transform hover:scale-105 transition-transform select-none">
-                N
+              <div
+                title={workspaceName}
+                className="w-9 h-9 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-sm shadow-xs shadow-emerald-500/30 transform hover:scale-105 transition-transform select-none"
+              >
+                {workspaceName.slice(0, 1).toUpperCase()}
               </div>
             )}
 
@@ -368,16 +376,16 @@ export default function Sidebar() {
             } p-2 rounded-2xl bg-white border border-slate-200/70 shadow-2xs hover:border-emerald-200 transition-colors`}
           >
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 text-white font-bold text-xs flex items-center justify-center shadow-xs flex-shrink-0">
-              SK
+              {userInitials || 'GU'}
             </div>
 
             {!collapsed && (
               <div className="leading-tight min-w-0">
                 <p className="text-xs font-bold text-slate-900 truncate">
-                  Shalika
+                  {userName}
                 </p>
                 <p className="text-[10px] font-medium text-slate-400 truncate">
-                  Software Engineer
+                  {userDesignation}
                 </p>
               </div>
             )}

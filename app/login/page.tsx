@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDispatch } from "../store/hooks";
 import { loginUser } from "../store/auth/authSlice";
@@ -259,9 +260,9 @@ export default function LoginPage() {
 
           <div className="mt-8 pt-4 text-center text-xs text-gray-500">
             Not a member?{" "}
-            <a href="#register" className="text-gray-900 font-bold hover:underline transition-colors">
+            <Link href="/signup" className="text-gray-900 font-bold hover:underline transition-colors">
               Register now
-            </a>
+            </Link>
           </div>
         </div>
 

@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import Sidebar from '../components/SideBar';
 import Header from '../components/Header';
 import { SidebarProvider, useSidebar } from '../components/SidebarContext';
+import { useDispatch, useSelector } from '../store/hooks';
+import { fetchDashboard } from '../store/dashboard/dashBoardSlice';
 
 // ============================================================
 // Types
@@ -42,43 +44,47 @@ interface ActivityItem {
 
 const IST = 'Asia/Kolkata';
 
+function useIstNow() {
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return now;
+}
+
 // ============================================================
 // Live Clock
 // ============================================================
 
-function LiveClock() {
-  const [now, setNow] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setNow(new Date());
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const dateText = now
+function LiveClock({ now }: { now: Date | null }) {
+  const date = now
     ? new Intl.DateTimeFormat('en-IN', {
         timeZone: IST,
-        weekday: 'short',
+        weekday: 'long',
         day: '2-digit',
         month: 'short',
+        year: 'numeric',
       }).format(now)
-    : '--';
-
-  const timeText = now
+    : 'Loading date…';
+  const time = now
     ? new Intl.DateTimeFormat('en-IN', {
         timeZone: IST,
         hour: '2-digit',
         minute: '2-digit',
+        second: '2-digit',
         hourCycle: 'h23',
       }).format(now)
-    : '--:--';
+    : '--:--:--';
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-xl border border-slate-200/60 text-xs font-medium text-slate-600">
       <span>📅</span>
-      {dateText}
+      {date || '--'}
       <span className="text-slate-300">|</span>
-      <span className="font-mono font-bold">{timeText}</span>
+      <span className="font-mono font-bold">{time || '--:--:--'}</span>
       <span className="text-[10px] text-slate-400">IST</span>
     </div>
   );
@@ -90,6 +96,33 @@ function LiveClock() {
 
 function DashboardContent() {
   const { collapsed } = useSidebar();
+  const dispatch = useDispatch();
+  const authUser = useSelector((state) => state.auth.user);
+  const token = useSelector((state) => state.auth.token);
+  const dashboardDataFromStore = useSelector((state) => state.dashboard.data);
+  const dashboardLoading = useSelector((state) => state.dashboard.loading);
+  const dashboardErrorFromStore = useSelector((state) => state.dashboard.error);
+  const now = useIstNow();
+
+  useEffect(() => {
+    if (!token) return;
+    void dispatch(fetchDashboard());
+  }, [token, dispatch]);
+
+  const dashboardData = token ? dashboardDataFromStore : null;
+  const dashboardError = token
+    ? dashboardErrorFromStore
+    : 'Sign in to load your dashboard data.';
+  const user = dashboardData?.user || authUser;
+  const displayName = user?.name?.trim() || user?.email?.split('@')[0] || 'there';
+  const headerName = user?.name?.trim() || user?.email?.split('@')[0] || 'Guest User';
+  const userInitials = headerName
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  const headerRole = dashboardData?.user.designation || authUser?.role || 'Team member';
 
   const [tasks, setTasks] = useState<TaskItem[]>([
     {
@@ -191,21 +224,13 @@ function DashboardContent() {
     },
   ]);
 
-  const [today, setToday] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setToday(new Date());
-    const timer = setInterval(() => setToday(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const istHour = today
+  const istHour = now
     ? Number(
         new Intl.DateTimeFormat('en-IN', {
           timeZone: IST,
           hour: 'numeric',
           hourCycle: 'h23',
-        }).format(today)
+        }).format(now)
       )
     : null;
 
@@ -218,12 +243,12 @@ function DashboardContent() {
       ? 'Good afternoon'
       : 'Good evening';
 
-  const monthYear = today
+  const monthYear = now
     ? new Intl.DateTimeFormat('en-IN', {
         timeZone: IST,
         month: 'long',
         year: 'numeric',
-      }).format(today)
+      }).format(now)
     : '';
 
   const toggleTask = (id: string) => {
@@ -248,10 +273,10 @@ function DashboardContent() {
         {/* Header wrapper so rounded card has padding */}
         <div className="px-4 pt-4 sm:px-6 lg:px-7">
           <Header
-            userName="Shalika"
-            userRole="Software Engineer"
-            userEmail="shalika@nandgate.io"
-            userInitials="SK"
+            userName={headerName}
+            userRole={headerRole}
+            userEmail={user?.email || ''}
+            userInitials={userInitials || 'GU'}
             activeTab="Dashboard"
           />
         </div>
@@ -259,22 +284,23 @@ function DashboardContent() {
         {/* Dashboard Content */}
         <main className="w-full px-4 py-5 sm:px-6 lg:px-7">
           <div className="w-full max-w-[1600px] mx-auto space-y-5">
+            <div className="flex justify-end">
+              <LiveClock now={now} />
+            </div>
             {/* ==================================================
                 Hero Welcome Banner
             =================================================== */}
             <section className="bg-gradient-to-r from-emerald-50/70 via-teal-50/50 to-amber-50/40 rounded-3xl p-5 sm:p-7 border border-emerald-100/80 shadow-sm flex flex-col xl:flex-row items-center justify-between gap-6 relative overflow-hidden">
               <div className="space-y-3 z-10 max-w-xl w-full">
                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                  {greeting}, Shalika 👋
+                  {greeting}, {displayName} 👋
                 </h1>
 
                 <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                  Here&apos;s what&apos;s happening in your workspace today.
-                  You&apos;ve got{' '}
+                  Here&apos;s what&apos;s happening in your workspace today. You have{' '}
                   <span className="text-emerald-700 font-bold underline underline-offset-4 decoration-emerald-400">
-                    6 tasks due
-                  </span>{' '}
-                  before 6:00 PM.
+                    {dashboardLoading ? '—' : dashboardData?.task_stats.due_today ?? '—'} tasks due today
+                  </span>.
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -306,24 +332,7 @@ function DashboardContent() {
             {/* ==================================================
                 KPI Cards
             =================================================== */}
-            <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-              {/* My Tasks */}
-              <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex flex-col justify-between">
-                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>My Tasks</span>
-                  <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
-                    📑
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-between mt-3">
-                  <span className="text-3xl font-black text-slate-900">24</span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold">
-                    ↗ +3 today
-                  </span>
-                </div>
-                <div className="w-full h-1 bg-emerald-500 rounded-full mt-3" />
-              </div>
-
+            <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {/* Completed */}
               <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex flex-col justify-between">
                 <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
@@ -333,9 +342,11 @@ function DashboardContent() {
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between mt-3">
-                  <span className="text-3xl font-black text-slate-900">18</span>
+                  <span className="text-3xl font-black text-slate-900">
+                    {dashboardLoading ? '—' : dashboardData?.task_stats.completed_tasks ?? '—'}
+                  </span>
                   <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold">
-                    75% complete
+                    Completed tasks
                   </span>
                 </div>
                 <div className="w-full h-1 bg-emerald-500 rounded-full mt-3" />
@@ -350,9 +361,11 @@ function DashboardContent() {
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between mt-3">
-                  <span className="text-3xl font-black text-slate-900">6</span>
+                  <span className="text-3xl font-black text-slate-900">
+                    {dashboardLoading ? '—' : dashboardData?.task_stats.due_today ?? '—'}
+                  </span>
                   <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold flex items-center gap-1">
-                    <span>⚠️</span> Priority
+                    Due today
                   </span>
                 </div>
                 <div className="w-full h-1 bg-amber-500 rounded-full mt-3" />
@@ -367,14 +380,31 @@ function DashboardContent() {
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between mt-3">
-                  <span className="text-3xl font-black text-slate-900">2</span>
+                  <span className="text-3xl font-black text-slate-900">
+                    {dashboardLoading ? '—' : dashboardData?.task_stats.overdue_tasks ?? '—'}
+                  </span>
                   <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 text-[10px] font-bold border border-rose-100">
-                    Action Required
+                    Overdue tasks
                   </span>
                 </div>
                 <div className="w-full h-1 bg-rose-500 rounded-full mt-3" />
               </div>
             </section>
+
+            {dashboardError && (
+              <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+                <span>{dashboardError}</span>
+                {token && (
+                  <button
+                    type="button"
+                    onClick={() => void dispatch(fetchDashboard())}
+                    className="font-bold underline underline-offset-2"
+                  >
+                    Try again
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* ==================================================
                 Tasks & Schedule
@@ -389,7 +419,7 @@ function DashboardContent() {
                         My Tasks
                       </h2>
                       <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold">
-                        4 Active
+                        Sample tasks
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-slate-400">
@@ -446,7 +476,7 @@ function DashboardContent() {
                 </div>
 
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>Showing 4 of 24 tasks</span>
+                  <span>Example task list</span>
                   <a
                     href="#all-tasks"
                     className="text-slate-900 font-bold hover:underline flex items-center gap-1"

@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import type { AppDispatch } from '../store';
+import type { AppDispatch, RootState } from '../store';
 
 
 // ========================================
@@ -11,6 +11,12 @@ interface User {
   email: string;
   name: string;
   role?: string;
+  designation?: string | null;
+}
+
+interface Workspace {
+  id: number;
+  name: string;
 }
 
 
@@ -21,10 +27,15 @@ interface User {
 interface AuthState {
   user: User | null;
   token: string | null;
+  workspace: Workspace | null;
 
   // Login loading/error
   loading: boolean;
   error: string | null;
+
+  // Signup loading/error
+  signupLoading: boolean;
+  signupError: string | null;
 
   // Change password loading/error
   passwordChanging: boolean;
@@ -39,9 +50,12 @@ interface AuthState {
 const initialState: AuthState = {
   user: null,
   token: null,
+  workspace: null,
 
   loading: false,
   error: null,
+  signupLoading: false,
+  signupError: null,
 
   passwordChanging: false,
   passwordError: null,
@@ -73,11 +87,23 @@ const authSlice = createSlice({
 
     setUserDetails(
       state,
-      action: PayloadAction<{ user: User; token: string }>
+      action: PayloadAction<{ user: User; token: string; workspace?: Workspace | null }>
     ) {
       state.loading = false;
       state.user = action.payload.user;
       state.token = action.payload.token;
+      state.workspace = action.payload.workspace ?? null;
+      state.error = null;
+    },
+
+    restoreSession(
+      state,
+      action: PayloadAction<{ user: User; token: string; workspace?: Workspace | null }>
+    ) {
+      state.user = action.payload.user;
+      state.token = action.payload.token;
+      state.workspace = action.payload.workspace ?? null;
+      state.loading = false;
       state.error = null;
     },
 
@@ -107,6 +133,28 @@ const authSlice = createSlice({
     loginFailure(state, action: PayloadAction<string>) {
       state.loading = false;
       state.error = action.payload;
+    },
+
+    signupStart(state) {
+      state.signupLoading = true;
+      state.signupError = null;
+    },
+
+    signupSuccess(
+      state,
+      action: PayloadAction<{ user: User; token: string; workspace: Workspace }>
+    ) {
+      state.signupLoading = false;
+      state.signupError = null;
+      state.user = action.payload.user;
+      state.token = action.payload.token;
+      state.workspace = action.payload.workspace;
+      state.error = null;
+    },
+
+    signupFailure(state, action: PayloadAction<string>) {
+      state.signupLoading = false;
+      state.signupError = action.payload;
     },
 
 
@@ -159,9 +207,12 @@ const authSlice = createSlice({
     logout(state) {
       state.user = null;
       state.token = null;
+      state.workspace = null;
 
       state.error = null;
       state.loading = false;
+      state.signupLoading = false;
+      state.signupError = null;
 
       state.passwordChanging = false;
       state.passwordError = null;
@@ -177,7 +228,11 @@ const authSlice = createSlice({
 export const {
   loginStart,
   setUserDetails,
+  restoreSession,
   loginFailure,
+  signupStart,
+  signupSuccess,
+  signupFailure,
 
   setToken,
   setUserData,
@@ -196,6 +251,62 @@ export const {
 // ========================================
 
 export default authSlice.reducer;
+
+
+// ========================================
+// Signup Thunk
+// ========================================
+
+export const signupUser =
+  (signupData: {
+    name: string;
+    email: string;
+    password: string;
+    workspace_name: string;
+  }) =>
+  async (dispatch: AppDispatch) => {
+    dispatch(signupStart());
+
+    try {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const response = await fetch(`${apiBaseUrl}/api/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(signupData),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.success || !result.data?.token || !result.data?.user) {
+        const message = result.message || 'Signup failed. Please try again.';
+        dispatch(signupFailure(message));
+        return { success: false, message };
+      }
+
+      const { token, user, workspace } = result.data as {
+        token: string;
+        user: User;
+        workspace: Workspace;
+      };
+
+      dispatch(signupSuccess({ user, token, workspace }));
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(
+          'work-management-auth',
+          JSON.stringify({ token, user, workspace })
+        );
+      }
+
+      return {
+        success: true,
+        message: result.message || 'Signup successful',
+        payload: { token, user, workspace },
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Signup failed. Please try again.';
+      dispatch(signupFailure(message));
+      return { success: false, message };
+    }
+  };
 
 
 // ========================================
@@ -240,16 +351,29 @@ export const loginUser =
       //   message: 'Login successful',
       //   data: {
       //     token: '...',
-      //     user: {...}
+      //     user: {...},
+      //     workspace: {...}
       //   }
       // }
 
-      const { token, user } = result.data;
+      const { token, user, workspace } = result.data as {
+        token: string;
+        user: User;
+        workspace?: Workspace | null;
+      };
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(
+          'work-management-auth',
+          JSON.stringify({ token, user, workspace: workspace ?? null })
+        );
+      }
 
       dispatch(
         setUserDetails({
           user,
           token,
+          workspace: workspace ?? null,
         })
       );
 
@@ -284,11 +408,18 @@ export const changePassword =
     current_password: string;
     new_password: string;
   }) =>
-  async (dispatch: AppDispatch) => {
+  async (dispatch: AppDispatch, getState: () => RootState) => {
 
     dispatch(changePasswordStart());
 
     try {
+      const token = getState().auth.token;
+      if (!token) {
+        const message = 'Please sign in again before changing your password.';
+        dispatch(changePasswordFailure(message));
+        return { success: false, message };
+      }
+
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/auth/change-password`,
         {
@@ -296,9 +427,7 @@ export const changePassword =
 
           headers: {
             'Content-Type': 'application/json',
-
-            // Send JWT token
-            Authorization: `Bearer ${getTokenFromState(dispatch)}`,
+            Authorization: `Bearer ${token}`,
           },
 
           body: JSON.stringify(passwordData),
@@ -348,19 +477,6 @@ export const changePassword =
 
 
 // ========================================
-// Helper
-// ========================================
-//
-// This will be replaced below with a cleaner
-// Redux-state based implementation.
-// ========================================
-
-const getTokenFromState = (_dispatch: AppDispatch): string => {
-  return '';
-};
-
-
-// ========================================
 // Logout Thunk
 // ========================================
 //
@@ -371,6 +487,9 @@ const getTokenFromState = (_dispatch: AppDispatch): string => {
 export const performLogout =
   () => async (dispatch: AppDispatch) => {
 
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('work-management-auth');
+    }
     dispatch(logout());
 
     return {
