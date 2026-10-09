@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import Sidebar from '../components/SideBar';
 import Header from '../components/Header';
 import CreateNewProjectForm from '../components/CreateNewProjectForm';
+import EditProjectForm from '../components/EditProjectForm';
 import { SidebarProvider, useSidebar } from '../components/SidebarContext';
 import { useDispatch, useSelector } from '../store/hooks';
 import { fetchProjects } from '../store/project/projectSlice';
@@ -15,6 +17,8 @@ interface ProjectDisplayItem {
   categoryColor: 'green' | 'blue';
   date: string;
   description: string;
+  createdBy: number;
+  members: { id: number; name: string }[];
 }
 
 function toDisplayProject(project: {
@@ -24,6 +28,7 @@ function toDisplayProject(project: {
   created_by: number;
   created_at: string;
   updated_at: string;
+  members?: { id: number; name: string }[];
 }): ProjectDisplayItem {
   const name = project.name.trim();
   const normalizedName = name.toLowerCase();
@@ -42,6 +47,8 @@ function toDisplayProject(project: {
       year: 'numeric',
     }).format(new Date(project.updated_at)),
     description: project.description,
+    createdBy: project.created_by,
+    members: project.members ?? [],
   };
 }
 
@@ -56,6 +63,7 @@ function ProjectPageContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'All Projects' | 'Healthcare' | 'Community'>('All Projects');
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<ProjectDisplayItem | null>(null);
 
   useEffect(() => {
     if (token) {
@@ -67,6 +75,25 @@ function ProjectPageContent() {
     () => projectData.map(toDisplayProject),
     [projectData]
   );
+
+  const availableMembers = useMemo(() => {
+    const membersById = new Map<number, { id: number; name: string }>();
+
+    projectData.forEach((project) => {
+      project.members?.forEach((member) => {
+        membersById.set(member.id, member);
+      });
+    });
+
+    if (authUser?.id && !membersById.has(authUser.id)) {
+      membersById.set(authUser.id, {
+        id: authUser.id,
+        name: authUser.name || authUser.email,
+      });
+    }
+
+    return Array.from(membersById.values());
+  }, [authUser, projectData]);
 
   const filteredProjects = useMemo(() => {
     const search = searchQuery.trim().toLowerCase();
@@ -88,11 +115,13 @@ function ProjectPageContent() {
     .toUpperCase();
   const headerRole = authUser?.role || authUser?.designation || 'Team member';
 
+  const isOverlayOpen = isCreateProjectOpen || selectedProject !== null;
+
   return (
     <div className="min-h-screen bg-[#dce7dc] text-[#1e293b] font-sans antialiased selection:bg-[#0f172a] selection:text-white">
-      {!isCreateProjectOpen && <Sidebar />}
+      {!isOverlayOpen && <Sidebar />}
 
-      <div className={`min-h-screen pt-14 transition-all duration-300 lg:pt-0 ${isCreateProjectOpen ? 'lg:ml-0' : collapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
+      <div className={`min-h-screen pt-14 transition-all duration-300 lg:pt-0 ${isOverlayOpen ? 'lg:ml-0' : collapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
         <div className="px-4 pt-4 sm:px-6 lg:px-7">
           <Header
             userName={headerName}
@@ -250,17 +279,102 @@ function ProjectPageContent() {
                     </span>
                     <span className="text-[11px] font-medium text-[#64748b]">{project.date}</span>
                   </div>
+
                   <div>
                     <h3 className="text-xl font-extrabold text-[#0f172a]">{project.name}</h3>
                     <p className="mt-2 text-xs leading-relaxed text-[#64748b]">
                       {project.description || 'No description provided.'}
                     </p>
                   </div>
+
+                  {/* Members row — first letter of first name, same style as owner avatar */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex -space-x-2">
+                      {project.members.length > 0 ? (
+                        project.members.slice(0, 5).map((member, idx) => {
+                          const initial = member.name.trim().charAt(0).toUpperCase() || '?';
+                          const palettes = [
+                            'bg-[#0f172a] text-white',
+                            'bg-[#10b981] text-white',
+                            'bg-[#0ea5e9] text-white',
+                            'bg-[#f59e0b] text-white',
+                            'bg-[#8b5cf6] text-white',
+                          ];
+                          const palette = palettes[idx % palettes.length];
+                          return (
+                            <span
+                              key={member.id}
+                              title={member.name}
+                              className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-[11px] font-bold shadow-sm ${palette}`}
+                            >
+                              {initial}
+                            </span>
+                          );
+                        })
+                      ) : (
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[#0f172a] text-[11px] font-bold text-white shadow-sm">
+                          U1
+                        </span>
+                      )}
+
+                      {project.members.length > 5 && (
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[#e2e8f0] text-[11px] font-bold text-[#475569] shadow-sm">
+                          +{project.members.length - 5}
+                        </span>
+                      )}
+                    </div>
+
+                    <span className="text-[11px] font-medium text-[#64748b]">
+                      {project.members.length > 0
+                        ? `${project.members.length} member${project.members.length > 1 ? 's' : ''}`
+                        : 'No members'}
+                    </span>
+                  </div>
                 </div>
-                <div className="mt-6 flex items-center justify-end border-t border-[#f1f5f9] pt-6">
-                  <button type="button" className="text-xs font-bold text-[#0f172a] transition hover:text-[#10b981]">
+
+                {/* Footer: Edit + Delete icons on the left, Open Project on the right */}
+                <div className="mt-6 flex items-center justify-between border-t border-[#f1f5f9] pt-6">
+                  <div className="flex items-center gap-1">
+                    {/* EDIT ICON */}
+                    <button
+                      type="button"
+                      aria-label={`Edit ${project.name}`}
+                      title="Edit project"
+                      onClick={() => setSelectedProject(project)}
+                      className="rounded-lg p-2 text-[#64748b] transition hover:bg-[#e8f5e9] hover:text-[#10b981]"
+                    >
+                      <img
+                        src="https://d1nhio0ox7pgb.cloudfront.net/_img/o_collection_png/green_dark_grey/512x512/plain/edit.png"
+                        alt="Edit"
+                        className="h-4 w-4 object-contain"
+                      />
+                    </button>
+
+                    {/* DELETE ICON */}
+                    <button
+                      type="button"
+                      aria-label={`Delete ${project.name}`}
+                      title="Delete project"
+                      onClick={() => {
+                        // TODO: wire to your existing delete handler
+                        // e.g. dispatch(deleteProject(Number(project.id)))
+                      }}
+                      className="rounded-lg p-2 text-[#64748b] transition hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      <img
+                        src="https://d1nhio0ox7pgb.cloudfront.net/_img/o_collection_png/green_dark_grey/512x512/plain/selection_delete.png"
+                        alt="Delete"
+                        className="h-4 w-4 object-contain"
+                      />
+                    </button>
+                  </div>
+
+                  <Link
+                    href={`/project/${project.id}`}
+                    className="text-xs font-bold text-[#0f172a] transition hover:text-[#10b981]"
+                  >
                     Open Project →
-                  </button>
+                  </Link>
                 </div>
               </div>
             ))}
@@ -284,6 +398,14 @@ function ProjectPageContent() {
                 <CreateNewProjectForm onClose={() => setIsCreateProjectOpen(false)} />
               </div>
             </div>
+          )}
+
+          {selectedProject && (
+            <EditProjectForm
+              project={selectedProject}
+              availableMembers={availableMembers}
+              onClose={() => setSelectedProject(null)}
+            />
           )}
 
           <footer className="mx-auto mt-10 flex max-w-[1440px] flex-col gap-3 border-t border-[#cad8c9] pt-4 text-xs text-[#64748b] sm:flex-row sm:items-center sm:justify-between">

@@ -2,7 +2,7 @@
 
 import React, { useState, ReactNode } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDispatch, useSelector } from '../store/hooks';
 import { signupUser } from '../store/auth/authSlice';
 
@@ -93,9 +93,12 @@ const EyeOffIcon = () => (
 // ---------- Page ----------
 export default function SignupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const dispatch = useDispatch();
   const loading = useSelector((state) => state.auth.signupLoading);
   const signupError = useSelector((state) => state.auth.signupError);
+  const inviteToken = searchParams.get('token');
+  const isInviteSignup = Boolean(inviteToken);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -123,11 +126,18 @@ export default function SignupPage() {
       name: formData.name.trim(),
       email: formData.email.trim(),
       password: formData.password,
-      workspace_name: formData.workspace_name.trim(),
+      workspace_name: isInviteSignup
+        ? undefined
+        : formData.workspace_name.trim(),
+      invite_token: isInviteSignup ? inviteToken ?? undefined : undefined,
     };
 
-    if (!payload.name || !payload.email || !payload.password || !payload.workspace_name) {
+    if (!payload.name || !payload.email || !payload.password) {
       setError('Please fill in all required fields.');
+      return;
+    }
+    if (!isInviteSignup && !payload.workspace_name) {
+      setError('Please enter a workspace name.');
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
@@ -239,22 +249,29 @@ export default function SignupPage() {
                 </button>
               </Field>
 
-              {/* 4. Workspace name */}
-              <Field id="workspace_name" label="Workspace Name" icon={<BuildingIcon />}>
-                <input
-                  id="workspace_name"
-                  type="text"
-                  name="workspace_name"
-                  value={formData.workspace_name}
-                  onChange={handleChange}
-                  placeholder="e.g. Acme Labs or DevSquad"
-                  autoComplete="organization"
-                  className={`${inputBase} pr-28`}
-                />
-                <span className="pointer-events-none absolute right-3.5 text-xs text-slate-400 select-none">
-                  .nandgate.dev
-                </span>
-              </Field>
+              {!isInviteSignup && (
+                <Field id="workspace_name" label="Workspace Name" icon={<BuildingIcon />}>
+                  <input
+                    id="workspace_name"
+                    type="text"
+                    name="workspace_name"
+                    value={formData.workspace_name}
+                    onChange={handleChange}
+                    placeholder="e.g. Acme Labs or DevSquad"
+                    autoComplete="organization"
+                    className={`${inputBase} pr-28`}
+                  />
+                  <span className="pointer-events-none absolute right-3.5 text-xs text-slate-400 select-none">
+                    .nandgate.dev
+                  </span>
+                </Field>
+              )}
+
+              {isInviteSignup && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
+                  You will join the workspace invitation attached to this link.
+                </div>
+              )}
 
               {/* Terms checkbox */}
               <div className="flex items-center gap-2 pt-1">
@@ -319,7 +336,10 @@ export default function SignupPage() {
           {/* Bottom login link */}
           <p className="text-center text-xs text-slate-500 mt-6 pt-4 border-t border-slate-100">
             Already have an account?{' '}
-            <Link href="/login" className="font-bold text-slate-800 hover:text-emerald-700 underline">
+            <Link
+              href={isInviteSignup ? `/login?token=${encodeURIComponent(inviteToken || '')}` : '/login'}
+              className="font-bold text-slate-800 hover:text-emerald-700 underline"
+            >
               Log in
             </Link>
           </p>

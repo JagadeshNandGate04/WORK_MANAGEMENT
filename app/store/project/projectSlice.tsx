@@ -34,6 +34,18 @@ interface CreateProjectPayload {
   members: number[];
 }
 
+interface UpdateProjectPayload {
+  name: string;
+  description: string;
+  members: number[];
+}
+
+interface UpdateProjectResponse {
+  success: boolean;
+  message?: string;
+  data?: ProjectData;
+}
+
 interface ProjectState {
   data: ProjectData[];
   loading: boolean;
@@ -41,6 +53,9 @@ interface ProjectState {
   creating: boolean;
   createError: string | null;
   createdProject: ProjectData | null;
+   updating: boolean;
+  updateError: string | null;
+  updatedProject: ProjectData | null;
 }
 
 const initialState: ProjectState = {
@@ -50,6 +65,10 @@ const initialState: ProjectState = {
   creating: false,
   createError: null,
   createdProject: null,
+  updating: false,
+  updateError: null,
+  updatedProject: null,
+
 };
 
 const projectSlice = createSlice({
@@ -101,6 +120,34 @@ const projectSlice = createSlice({
       state.createError = null;
       state.createdProject = null;
     },
+    updateProjectStart(state) {
+      state.updating = true;
+      state.updateError = null;
+      state.updatedProject = null;
+    },
+
+    updateProjectSuccess(state, action: PayloadAction<ProjectData>) {
+      state.updating = false;
+      state.updateError = null;
+      state.updatedProject = action.payload;
+
+      // Replace the matching project in the list
+      const index = state.data.findIndex((p) => p.id === action.payload.id);
+      if (index !== -1) {
+        state.data[index] = action.payload;
+      }
+    },
+
+    updateProjectFailure(state, action: PayloadAction<string>) {
+      state.updating = false;
+      state.updateError = action.payload;
+    },
+
+    resetUpdateProjectState(state) {
+      state.updating = false;
+      state.updateError = null;
+      state.updatedProject = null;
+    },
   },
 });
 
@@ -113,6 +160,10 @@ export const {
   createProjectSuccess,
   createProjectFailure,
   resetCreateProjectState,
+  updateProjectStart,
+  updateProjectSuccess,
+  updateProjectFailure,
+  resetUpdateProjectState,
 } = projectSlice.actions;
 
 export default projectSlice.reducer;
@@ -159,6 +210,9 @@ export const fetchProjects =
     }
   };
 
+
+  // CREATE PROJECT
+
 export const createProject =
   (payload: CreateProjectPayload) =>
   async (dispatch: AppDispatch, getState: () => RootState) => {
@@ -203,6 +257,56 @@ export const createProject =
       const message =
         error instanceof Error ? error.message : 'Unable to create project.';
       dispatch(createProjectFailure(message));
+      return { success: false, message };
+    }
+  };
+
+
+// UPDATE PROJECT
+
+export const updateProject =
+  (projectId: number, payload: UpdateProjectPayload) =>
+  async (dispatch: AppDispatch, getState: () => RootState) => {
+    dispatch(updateProjectStart());
+
+    try {
+      const token = getState().auth.token;
+      if (!token) {
+        const message = 'You must be signed in to update a project.';
+        dispatch(updateProjectFailure(message));
+        return { success: false, message };
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/edit-project/${projectId}`,
+        {
+          method: 'PUT', // <-- change to 'POST' if your backend expects POST
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const result = (await response.json().catch(() => ({}))) as UpdateProjectResponse;
+
+      if (!response.ok || !result.success || !result.data) {
+        const message = result.message || 'Unable to update project.';
+        dispatch(updateProjectFailure(message));
+        return { success: false, message };
+      }
+
+      dispatch(updateProjectSuccess(result.data));
+      return {
+        success: true,
+        message: result.message || 'Project updated successfully',
+        payload: result.data,
+      };
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to update project.';
+      dispatch(updateProjectFailure(message));
       return { success: false, message };
     }
   };

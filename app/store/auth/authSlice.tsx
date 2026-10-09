@@ -17,6 +17,19 @@ interface User {
 interface Workspace {
   id: number;
   name: string;
+  role?: string;
+}
+
+interface LoginProject {
+  id: number;
+  name: string;
+  description: string;
+  workspace_id: number;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+  role?: string;
+  members?: Array<{ id: number; name: string }>;
 }
 
 
@@ -28,6 +41,8 @@ interface AuthState {
   user: User | null;
   token: string | null;
   workspace: Workspace | null;
+  workspaces: Workspace[];
+  projects: LoginProject[];
 
   // Login loading/error
   loading: boolean;
@@ -51,6 +66,8 @@ const initialState: AuthState = {
   user: null,
   token: null,
   workspace: null,
+  workspaces: [],
+  projects: [],
 
   loading: false,
   error: null,
@@ -87,22 +104,38 @@ const authSlice = createSlice({
 
     setUserDetails(
       state,
-      action: PayloadAction<{ user: User; token: string; workspace?: Workspace | null }>
+      action: PayloadAction<{
+        user: User;
+        token: string;
+        workspace?: Workspace | null;
+        workspaces?: Workspace[];
+        projects?: LoginProject[];
+      }>
     ) {
       state.loading = false;
       state.user = action.payload.user;
       state.token = action.payload.token;
       state.workspace = action.payload.workspace ?? null;
+      state.workspaces = action.payload.workspaces ?? [];
+      state.projects = action.payload.projects ?? [];
       state.error = null;
     },
 
     restoreSession(
       state,
-      action: PayloadAction<{ user: User; token: string; workspace?: Workspace | null }>
+      action: PayloadAction<{
+        user: User;
+        token: string;
+        workspace?: Workspace | null;
+        workspaces?: Workspace[];
+        projects?: LoginProject[];
+      }>
     ) {
       state.user = action.payload.user;
       state.token = action.payload.token;
       state.workspace = action.payload.workspace ?? null;
+      state.workspaces = action.payload.workspaces ?? [];
+      state.projects = action.payload.projects ?? [];
       state.loading = false;
       state.error = null;
     },
@@ -208,6 +241,8 @@ const authSlice = createSlice({
       state.user = null;
       state.token = null;
       state.workspace = null;
+      state.workspaces = [];
+      state.projects = [];
 
       state.error = null;
       state.loading = false;
@@ -262,7 +297,8 @@ export const signupUser =
     name: string;
     email: string;
     password: string;
-    workspace_name: string;
+    workspace_name?: string;
+    invite_token?: string;
   }) =>
   async (dispatch: AppDispatch) => {
     dispatch(signupStart());
@@ -356,16 +392,30 @@ export const loginUser =
       //   }
       // }
 
-      const { token, user, workspace } = result.data as {
+      const {
+        token,
+        user,
+        workspace,
+        workspaces = [],
+        projects = [],
+      } = result.data as {
         token: string;
         user: User;
         workspace?: Workspace | null;
+        workspaces?: Workspace[];
+        projects?: LoginProject[];
       };
 
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(
           'work-management-auth',
-          JSON.stringify({ token, user, workspace: workspace ?? null })
+          JSON.stringify({
+            token,
+            user,
+            workspace: workspace ?? null,
+            workspaces,
+            projects,
+          })
         );
       }
 
@@ -374,6 +424,8 @@ export const loginUser =
           user,
           token,
           workspace: workspace ?? null,
+          workspaces,
+          projects,
         })
       );
 

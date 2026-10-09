@@ -110,17 +110,27 @@ const CartoonNotificationIcon = () => (
   </div>
 );
 
-// 7. Settings: Precision cog badge
-const CartoonSettingsIcon = () => (
-  <div className="relative w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-600 via-emerald-500 to-cyan-400 p-1.5 shadow-sm shadow-teal-500/25 flex items-center justify-center group-hover:scale-105 group-hover:rotate-45 transition-transform duration-300 flex-shrink-0 border border-white/40 overflow-hidden">
+// 7. Member: Cartoon group of people badge
+const CartoonMemberIcon = () => (
+  <div className="relative w-8 h-8 rounded-xl bg-gradient-to-tr from-orange-500 via-amber-400 to-yellow-300 p-1.5 shadow-sm shadow-orange-500/25 flex items-center justify-center group-hover:scale-105 group-hover:-rotate-3 transition-transform duration-200 flex-shrink-0 border border-white/40 overflow-hidden">
     <div className="absolute -top-1 -left-1 w-5 h-3 bg-white/35 rounded-full blur-[1px] transform -rotate-12 pointer-events-none" />
     <svg viewBox="0 0 24 24" fill="none" className="w-full h-full drop-shadow-xs">
-      <circle cx="12" cy="12" r="3.2" fill="#ffffff" />
+      {/* Back person */}
+      <circle cx="16.5" cy="8.5" r="2.6" fill="#ffffff" fillOpacity={0.9} />
       <path
-        d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"
+        d="M12.2 19c.3-3 2.2-5 4.3-5s4 2 4.3 5c.1.6-.4 1.1-1 1.1h-6.6c-.6 0-1.1-.5-1-1.1z"
         fill="#ffffff"
-        fillOpacity={0.88}
+        fillOpacity={0.9}
       />
+      {/* Front person */}
+      <circle cx="9" cy="8" r="3.2" fill="#ffffff" />
+      <path
+        d="M3.2 19.2c.4-3.6 2.8-6.2 5.8-6.2s5.4 2.6 5.8 6.2c.1.6-.4 1.1-1 1.1H4.2c-.6 0-1.1-.5-1-1.1z"
+        fill="#ffffff"
+      />
+      {/* Accent cheeks */}
+      <circle cx="7.8" cy="8.6" r="0.6" fill="#f97316" />
+      <circle cx="10.2" cy="8.6" r="0.6" fill="#f97316" />
     </svg>
   </div>
 );
@@ -163,7 +173,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'list', label: 'List', href: '/list', icon: CartoonListIcon },
   { id: 'chat', label: 'Chat', href: '/chat', icon: CartoonChatIcon, badge: 3 },
   { id: 'notification', label: 'Notification', href: '/notification', icon: CartoonNotificationIcon, dot: true },
-  { id: 'settings', label: 'Settings', href: '/settings', icon: CartoonSettingsIcon },
+  { id: 'member', label: 'Member', href: '/member', icon: CartoonMemberIcon },
 ];
 
 /* ============================================================
@@ -198,11 +208,6 @@ export default function Sidebar() {
     mq.addEventListener('change', handle);
     return () => mq.removeEventListener('change', handle);
   }, [setCollapsed]);
-
-  // Close mobile drawer on route change
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
 
   return (
     <>
@@ -298,6 +303,7 @@ export default function Sidebar() {
             {NAV_ITEMS.map((item) => {
               const isActive =
                 pathname === item.href ||
+                (item.id === 'project' && pathname?.startsWith('/project/')) ||
                 (item.href === '/dashboard' && (pathname === '/' || pathname?.startsWith('/dashboard')));
               const Icon = item.icon;
 
@@ -305,6 +311,7 @@ export default function Sidebar() {
                 <Link
                   key={item.id}
                   href={item.href}
+                  onClick={() => setMobileOpen(false)}
                   title={collapsed ? item.label : undefined}
                   className={[
                     'relative group flex items-center gap-3.5 rounded-2xl px-3 py-2.5',

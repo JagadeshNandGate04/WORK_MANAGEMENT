@@ -15,6 +15,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         token?: unknown;
         user?: unknown;
         workspace?: unknown;
+        workspaces?: unknown;
+        projects?: unknown;
       };
       if (
         typeof session.token === 'string' &&
@@ -33,8 +35,26 @@ export function Providers({ children }: { children: React.ReactNode }) {
             },
             workspace:
               session.workspace && typeof session.workspace === 'object'
-                ? (session.workspace as { id: number; name: string })
+                ? (session.workspace as { id: number; name: string; role?: string })
                 : null,
+            workspaces:
+              Array.isArray(session.workspaces)
+                ? session.workspaces as Array<{ id: number; name: string; role?: string }>
+                : [],
+            projects:
+              Array.isArray(session.projects)
+                ? session.projects as Array<{
+                    id: number;
+                    name: string;
+                    description: string;
+                    workspace_id: number;
+                    created_by: number;
+                    created_at: string;
+                    updated_at: string;
+                    role?: string;
+                    members?: Array<{ id: number; name: string }>;
+                  }>
+                : [],
           })
         );
       }
