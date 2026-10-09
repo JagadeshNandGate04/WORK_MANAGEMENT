@@ -457,7 +457,7 @@ export default function CreateTaskModal({
             <div className="flex h-full flex-col items-center justify-center lg:col-span-5">
               <div className="flex aspect-square w-full max-w-[340px] items-center justify-center overflow-hidden rounded-3xl border border-[#d2ded1] bg-[#edf3ec] p-4 shadow-xs">
                 <img
-                  src="/images/cartoon-dev-tablet.png"
+                  src="/newtask.png"
                   alt="NANDGATE Developer Mascot configuring task"
                   className="h-full w-full object-contain"
                   onError={(e) => {

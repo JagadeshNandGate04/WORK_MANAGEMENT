@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Sidebar from '../components/SideBar';
 import Header from '../components/Header';
 import { SidebarProvider, useSidebar } from '../components/SidebarContext';
@@ -11,23 +11,8 @@ import { fetchDashboard } from '../store/dashboard/dashBoardSlice';
 // Types
 // ============================================================
 
-interface TaskItem {
-  id: string;
-  title: string;
-  tag: string;
-  statusBadge?: { label: string; bg: string; text: string };
-  completed: boolean;
-}
-
-interface CalendarEvent {
-  day: string;
-  month: string;
-  title: string;
-  description: string;
-  time: string;
-}
-
 interface ProjectProgressItem {
+  id: number;
   name: string;
   progress: number;
   color: string;
@@ -40,6 +25,7 @@ interface ActivityItem {
   action: string;
   target: string;
   timeAgo: string;
+  id: number;
 }
 
 const IST = 'Asia/Kolkata';
@@ -124,105 +110,66 @@ function DashboardContent() {
     .toUpperCase();
   const headerRole = dashboardData?.user.designation || authUser?.role || 'Team member';
 
-  const [tasks, setTasks] = useState<TaskItem[]>([
-    {
-      id: 'task-1',
-      title: 'Fix Login API',
-      tag: 'Backend',
-      statusBadge: {
-        label: 'High',
-        bg: 'bg-rose-50 border border-rose-200',
-        text: 'text-rose-600',
-      },
-      completed: false,
-    },
-    {
-      id: 'task-2',
-      title: 'Dashboard UI',
-      tag: 'Design',
-      statusBadge: {
-        label: '• In Progress',
-        bg: 'bg-emerald-50 border border-emerald-200',
-        text: 'text-emerald-700',
-      },
-      completed: false,
-    },
-    {
-      id: 'task-3',
-      title: 'Database Integration',
-      tag: 'DevOps',
-      statusBadge: {
-        label: 'Review',
-        bg: 'bg-amber-50 border border-amber-200',
-        text: 'text-amber-700',
-      },
-      completed: false,
-    },
-    {
-      id: 'task-4',
-      title: 'Authentication',
-      tag: 'Security',
-      statusBadge: { label: 'Done', bg: 'bg-emerald-100', text: 'text-emerald-800' },
-      completed: true,
-    },
-  ]);
-
-  const [upcomingEvents] = useState<CalendarEvent[]>([
-    {
-      day: '02',
-      month: 'OCT',
-      title: 'Client Meeting',
-      description: 'Zoom with Acme Corp Partners • Product Scope',
-      time: '10:00 AM',
-    },
-    {
-      day: '03',
-      month: 'OCT',
-      title: 'API Testing',
-      description: 'Sprint QA signoff & stress testing batch v2.4',
-      time: '02:30 PM',
-    },
-    {
-      day: '04',
-      month: 'OCT',
-      title: 'UI Review',
-      description: 'Design handoff with UX Lead Shalika & team',
-      time: '11:15 AM',
-    },
-  ]);
-
-  const [projects] = useState<ProjectProgressItem[]>([
-    { name: 'HR Application', progress: 72, color: 'bg-indigo-500' },
-    { name: 'Mobile App', progress: 84, color: 'bg-emerald-500' },
-    { name: 'Website', progress: 54, color: 'bg-amber-500' },
-  ]);
-
-  const [activities] = useState<ActivityItem[]>([
-    {
-      initials: 'JD',
-      avatarBg: 'bg-blue-100 text-blue-800',
-      author: 'John',
-      action: 'created a task:',
-      target: 'Implement OAuth flow',
-      timeAgo: '5m ago',
-    },
-    {
-      initials: 'SC',
-      avatarBg: 'bg-purple-100 text-purple-800',
-      author: 'Sarah',
-      action: 'commented on',
-      target: 'Bug #104',
-      timeAgo: '18m ago',
-    },
-    {
-      initials: 'SK',
-      avatarBg: 'bg-emerald-100 text-emerald-800',
-      author: 'You',
-      action: 'completed a task:',
-      target: 'Authentication',
-      timeAgo: '1h ago',
-    },
-  ]);
+  const projects = useMemo(() => dashboardData?.projects ?? [], [dashboardData?.projects]);
+  const dashboardTasks = useMemo(() => dashboardData?.tasks ?? [], [dashboardData?.tasks]);
+  const currentUserId = user?.id;
+  const myTasks = useMemo(
+    () => dashboardTasks.filter((task) => currentUserId != null && task.assignee_id === currentUserId),
+    [currentUserId, dashboardTasks]
+  );
+  const taskStatus = (status: number) => ({
+    1: 'Needs Triage',
+    2: 'Fixing',
+    3: 'Ready to Retest',
+    4: 'Retest',
+    5: 'Verified',
+    6: 'Closed',
+    7: 'Completed',
+  }[status] || 'Unknown');
+  const taskPriority = (priority: number) => ({ 1: 'Low', 2: 'Medium', 3: 'High' }[priority] || '—');
+  const upcomingTasks = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return myTasks
+      .filter((task) => task.due_date && task.due_date.slice(0, 10) >= today)
+      .sort((a, b) => Date.parse(a.due_date || '') - Date.parse(b.due_date || ''))
+      .slice(0, 3);
+  }, [myTasks]);
+  const projectProgress: ProjectProgressItem[] = useMemo(() => {
+    const colors = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-sky-500', 'bg-rose-500'];
+    return projects.map((project, index) => {
+      const projectTasks = dashboardTasks.filter((task) => task.project_id === project.id);
+      const doneTasks = projectTasks.filter((task) => task.status >= 5).length;
+      return {
+        id: project.id,
+        name: project.name,
+        progress: projectTasks.length ? Math.round((doneTasks / projectTasks.length) * 100) : 0,
+        color: colors[index % colors.length],
+      };
+    });
+  }, [dashboardTasks, projects]);
+  const activities: ActivityItem[] = useMemo(() => {
+    const colors = ['bg-blue-100 text-blue-800', 'bg-purple-100 text-purple-800', 'bg-emerald-100 text-emerald-800'];
+    return [...dashboardTasks]
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+      .slice(0, 4)
+      .map((task, index) => {
+        const creator = projects
+          .find((project) => project.id === task.project_id)
+          ?.members.find((member) => member.id === task.created_by)?.name;
+        const author = task.created_by === currentUserId ? 'You' : creator || `Member ${task.created_by}`;
+        const elapsedMinutes = Math.max(0, Math.floor(((now?.getTime() ?? Date.parse(task.created_at)) - Date.parse(task.created_at)) / 60000));
+        const timeAgo = elapsedMinutes < 1 ? 'Just now' : elapsedMinutes < 60 ? `${elapsedMinutes}m ago` : `${Math.floor(elapsedMinutes / 60)}h ago`;
+        return {
+          id: task.id,
+          initials: author.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+          avatarBg: colors[index % colors.length],
+          author,
+          action: 'created a task:',
+          target: task.name,
+          timeAgo,
+        };
+      });
+  }, [currentUserId, dashboardTasks, now, projects]);
 
   const istHour = now
     ? Number(
@@ -250,14 +197,6 @@ function DashboardContent() {
         year: 'numeric',
       }).format(now)
     : '';
-
-  const toggleTask = (id: string) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task
-      )
-    );
-  };
 
   return (
     <div className="min-h-screen w-full bg-[#e2ede0] text-slate-800 font-sans antialiased selection:bg-emerald-200">
@@ -419,7 +358,7 @@ function DashboardContent() {
                         My Tasks
                       </h2>
                       <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold">
-                        Sample tasks
+                        {myTasks.length} {myTasks.length === 1 ? 'task' : 'tasks'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-slate-400">
@@ -429,54 +368,45 @@ function DashboardContent() {
                   </div>
 
                   <div className="divide-y divide-slate-100 pt-1">
-                    {tasks.map((task) => (
+                    {myTasks.map((task) => (
                       <div
                         key={task.id}
-                        onClick={() => toggleTask(task.id)}
-                        className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/70 px-2 rounded-xl cursor-pointer transition-colors"
+                        className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/70 px-2 rounded-xl transition-colors"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div
-                            className={`w-4 h-4 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${
-                              task.completed
-                                ? 'bg-emerald-500 border-emerald-500 text-white'
-                                : 'border-slate-300 bg-white'
-                            }`}
+                            className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${task.status >= 5 ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 bg-white'}`}
                           >
-                            {task.completed && (
+                            {task.status >= 5 && (
                               <span className="text-[10px] font-bold">✓</span>
                             )}
                           </div>
-                          <span
-                            className={`text-xs font-semibold transition-colors truncate ${
-                              task.completed
-                                ? 'line-through text-slate-400'
-                                : 'text-slate-800'
-                            }`}
-                          >
-                            {task.title}
-                          </span>
+                          <div className="min-w-0">
+                            <p className={`truncate text-xs font-semibold ${task.status >= 5 ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                              {task.name}
+                            </p>
+                            <p className="truncate text-[10px] text-slate-400">{task.project_name}</p>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          {task.statusBadge && (
-                            <span
-                              className={`hidden sm:inline-block px-2 py-0.5 text-[10px] font-bold rounded-md ${task.statusBadge.bg} ${task.statusBadge.text}`}
-                            >
-                              {task.statusBadge.label}
-                            </span>
-                          )}
+                          <span className="hidden sm:inline-block rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                            {taskStatus(task.status)}
+                          </span>
                           <span className="text-[11px] text-slate-400 font-medium">
-                            {task.tag}
+                            {taskPriority(task.priority)}
                           </span>
                         </div>
                       </div>
                     ))}
+                    {!dashboardLoading && myTasks.length === 0 && (
+                      <p className="px-2 py-8 text-center text-xs text-slate-500">No tasks are currently assigned to you.</p>
+                    )}
                   </div>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>Example task list</span>
+                  <span>Tasks assigned to you</span>
                   <a
                     href="#all-tasks"
                     className="text-slate-900 font-bold hover:underline flex items-center gap-1"
@@ -506,39 +436,46 @@ function DashboardContent() {
                   </div>
 
                   <div className="divide-y divide-slate-100 pt-1">
-                    {upcomingEvents.map((evt, idx) => (
+                    {upcomingTasks.map((task) => {
+                      const dueDate = new Date(task.due_date || '');
+                      const isValidDate = !Number.isNaN(dueDate.getTime());
+                      return (
                       <div
-                        key={idx}
+                        key={task.id}
                         className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/70 px-2 rounded-xl transition-colors"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 flex flex-col items-center justify-center text-slate-700 leading-none flex-shrink-0">
                             <span className="text-[9px] uppercase font-bold text-slate-400">
-                              {evt.month}
+                              {isValidDate ? new Intl.DateTimeFormat('en', { month: 'short' }).format(dueDate) : '--'}
                             </span>
                             <span className="text-sm font-black text-slate-900 mt-0.5">
-                              {evt.day}
+                              {isValidDate ? new Intl.DateTimeFormat('en', { day: '2-digit' }).format(dueDate) : '--'}
                             </span>
                           </div>
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-slate-900 truncate">
-                              {evt.title}
+                              {task.name}
                             </p>
                             <p className="text-[11px] text-slate-500 truncate">
-                              {evt.description}
+                              {task.project_name} · {taskStatus(task.status)}
                             </p>
                           </div>
                         </div>
                         <span className="text-[11px] font-mono font-medium text-slate-400 whitespace-nowrap">
-                          {evt.time}
+                          {isValidDate ? new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(dueDate) : '—'}
                         </span>
                       </div>
-                    ))}
+                      );
+                    })}
+                    {!dashboardLoading && upcomingTasks.length === 0 && (
+                      <p className="px-2 py-8 text-center text-xs text-slate-500">No upcoming task due dates.</p>
+                    )}
                   </div>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>3 events this week</span>
+                  <span>{upcomingTasks.length} upcoming {upcomingTasks.length === 1 ? 'task' : 'tasks'}</span>
                   <a
                     href="#calendar"
                     className="text-slate-900 font-bold hover:underline flex items-center gap-1"
@@ -559,8 +496,8 @@ function DashboardContent() {
                   Project Progress
                 </h2>
                 <div className="space-y-4">
-                  {projects.map((proj, idx) => (
-                    <div key={idx} className="space-y-1.5">
+                  {projectProgress.map((proj) => (
+                    <div key={proj.id} className="space-y-1.5">
                       <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full ${proj.color}`} />
@@ -578,7 +515,11 @@ function DashboardContent() {
                       </div>
                     </div>
                   ))}
+                  {!dashboardLoading && projectProgress.length === 0 && (
+                    <p className="py-6 text-center text-xs text-slate-500">No projects are associated with this account.</p>
+                  )}
                 </div>
+                <p className="mt-4 text-[10px] text-slate-400">Progress is calculated from tasks at Verified, Closed, or Completed status.</p>
               </div>
 
               {/* Recent Activity */}
@@ -587,9 +528,9 @@ function DashboardContent() {
                   Recent Activity
                 </h2>
                 <div className="space-y-3">
-                  {activities.map((act, idx) => (
+                    {activities.map((act) => (
                     <div
-                      key={idx}
+                      key={act.id}
                       className="flex items-center justify-between gap-3 text-xs"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
@@ -613,6 +554,9 @@ function DashboardContent() {
                       </span>
                     </div>
                   ))}
+                    {!dashboardLoading && activities.length === 0 && (
+                      <p className="py-6 text-center text-xs text-slate-500">No task activity is available yet.</p>
+                    )}
                 </div>
               </div>
             </section>

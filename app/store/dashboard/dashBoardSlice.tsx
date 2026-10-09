@@ -20,11 +20,45 @@ export interface DashboardWorkspace {
   name: string;
 }
 
+export interface DashboardProjectMember {
+  id: number;
+  name: string;
+}
+
+export interface DashboardProject {
+  id: number;
+  name: string;
+  description: string;
+  workspace_id: number;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+  role: string;
+  members: DashboardProjectMember[];
+}
+
+export interface DashboardTask {
+  id: number;
+  project_id: number;
+  project_name: string;
+  name: string;
+  description: string;
+  assignee_id: number | null;
+  due_date: string | null;
+  priority: number;
+  status: number;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DashboardData {
   date: string;
   time: string;
   user: DashboardUser;
   task_stats: DashboardTaskStats;
+  projects: DashboardProject[];
+  tasks: DashboardTask[];
   workspace: DashboardWorkspace;
 }
 
