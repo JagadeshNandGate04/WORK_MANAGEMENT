@@ -170,7 +170,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: CartoonDashboardIcon },
   { id: 'project', label: 'Project', href: '/project', icon: CartoonProjectIcon },
   { id: 'task', label: 'Task', href: '/task', icon: CartoonTaskIcon, badge: 24 },
-  { id: 'list', label: 'List', href: '/list', icon: CartoonListIcon },
+  { id: 'report', label: 'Report', href: '/report', icon: CartoonListIcon },
   { id: 'chat', label: 'Chat', href: '/chat', icon: CartoonChatIcon, badge: 3 },
   { id: 'notification', label: 'Notification', href: '/notification', icon: CartoonNotificationIcon, dot: true },
   { id: 'member', label: 'Member', href: '/member', icon: CartoonMemberIcon },

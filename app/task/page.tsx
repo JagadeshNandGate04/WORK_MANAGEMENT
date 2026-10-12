@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -7,12 +8,18 @@ import { SidebarProvider, useSidebar } from '../components/SidebarContext';
 import { useDispatch, useSelector } from '../store/hooks';
 import { fetchProjects } from '../store/project/projectSlice';
 import { fetchWorkspaceMembers } from '../store/member/memberSlice';
-import { fetchTasksForProjects } from '../store/task/taskSlice';
+import {
+  fetchTasksForProjects,
+  createTask,
+  updateTaskStatus,
+  clearUpdateTaskStatusError,
+  updateTask,
+  clearUpdateTaskError,
+} from '../store/task/taskSlice';
+import type { UpdateTaskPayload } from '../store/task/taskSlice';
 import { fetchDashboard } from '../store/dashboard/dashBoardSlice';
-import { createTask } from '../store/task/taskSlice';
 import CreateTaskModal from '../components/CreateTaskForm';
 
-// Task shape used by the list
 export interface TaskItem {
   id: number;
   task_code: string;
@@ -25,8 +32,8 @@ export interface TaskItem {
   assignee_email?: string;
   assignee_role?: string;
   due_date: string;
-  priority: number; // 0: Critical (P0), 1: High (P1), 2: Medium (P2), 3: Normal (P3)
-  status: number; // 0: Todo, 1: In Progress, 2: Review, 3: Completed
+  priority: number;
+  status: number;
   created_by: number;
   created_by_name: string;
   created_at: string;
@@ -37,19 +44,22 @@ export interface ProjectOption {
   name: string;
 }
 
+type ActionResult = void | { success: boolean; message?: string };
+
 interface TaskOperationsProps {
-  /** Tasks to show. Empty by default. */
   tasks?: TaskItem[];
-  /** Projects for the scope tabs. Empty by default. */
   projects?: ProjectOption[];
   workspaceName?: string;
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
-  /** Opens your "create task" popup or page */
   onNewTask?: (projectId?: number) => void;
   onViewTask?: (task: TaskItem) => void;
   onEditTask?: (task: TaskItem) => void;
+  onChangeStatus?: (
+    task: TaskItem,
+    status: number
+  ) => ActionResult | Promise<ActionResult>;
 }
 
 type ViewMode = 'list' | 'kanban' | 'timeline';
@@ -63,17 +73,58 @@ const PROJECT_DOT_COLORS = [
   'bg-sky-500',
 ];
 
-const STATUS_COLUMNS = [
-  { value: 1, label: 'Needs Triage' },
-  { value: 2, label: 'Fixing' },
-  { value: 3, label: 'Ready to Retest' },
-  { value: 4, label: 'Retest' },
-  { value: 5, label: 'Verified' },
-  { value: 6, label: 'Closed' },
-  { value: 7, label: 'Completed' },
+const STATUS_OPTIONS = [
+  {
+    value: 1,
+    label: 'Needs Triage',
+    style: 'bg-slate-100 text-slate-700 border-slate-200',
+    dot: 'bg-slate-400',
+  },
+  {
+    value: 2,
+    label: 'Fixing',
+    style: 'bg-amber-50 text-amber-800 border-amber-200',
+    dot: 'bg-amber-500',
+  },
+  {
+    value: 3,
+    label: 'Ready to Retest',
+    style: 'bg-sky-50 text-sky-800 border-sky-200',
+    dot: 'bg-sky-500',
+  },
+  {
+    value: 4,
+    label: 'Retest',
+    style: 'bg-purple-50 text-purple-800 border-purple-200',
+    dot: 'bg-purple-500',
+  },
+  {
+    value: 5,
+    label: 'Verified',
+    style: 'bg-teal-50 text-teal-800 border-teal-200',
+    dot: 'bg-teal-500',
+  },
+  {
+    value: 6,
+    label: 'Closed',
+    style: 'bg-slate-200 text-slate-700 border-slate-300',
+    dot: 'bg-slate-500',
+  },
+  {
+    value: 7,
+    label: 'Completed',
+    style: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    dot: 'bg-emerald-600',
+  },
 ];
 
-// ---------- Badges ----------
+const UNKNOWN_STATUS_STYLE = 'bg-slate-100 text-slate-700 border-slate-200';
+
+const STATUS_COLUMNS = STATUS_OPTIONS.map(({ value, label }) => ({
+  value,
+  label,
+}));
+
 function PriorityBadge({ priority }: { priority: number }) {
   switch (priority) {
     case 1:
@@ -108,29 +159,75 @@ function PriorityBadge({ priority }: { priority: number }) {
 }
 
 function StatusBadge({ status }: { status: number }) {
-  const labels: Record<number, string> = {
-    1: 'Needs Triage',
-    2: 'Fixing',
-    3: 'Ready to Retest',
-    4: 'Retest',
-    5: 'Verified',
-    6: 'Closed',
-    7: 'Completed',
-  };
-  const completed = status === 7;
-  const label = labels[status] || 'Unknown';
+  const option = STATUS_OPTIONS.find((o) => o.value === status);
 
   return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${completed ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-700'}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${completed ? 'bg-emerald-600' : 'bg-slate-400'}`} />
-      {label}
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${
+        option ? option.style : UNKNOWN_STATUS_STYLE
+      }`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          option ? option.dot : 'bg-slate-400'
+        }`}
+      />
+      {option ? option.label : 'Unknown'}
     </span>
   );
 }
 
-// Assignee initials
+interface StatusSelectProps {
+  status: number;
+  disabled?: boolean;
+  onChange: (status: number) => void;
+}
+
+function StatusSelect({
+  status,
+  disabled,
+  onChange,
+}: StatusSelectProps) {
+  const option = STATUS_OPTIONS.find((o) => o.value === status);
+
+  return (
+    <div className="relative inline-block">
+      <select
+        value={status}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label="Change task status"
+        className={`cursor-pointer appearance-none rounded-full border py-1 pl-3 pr-7 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#081b2c]/30 disabled:cursor-wait disabled:opacity-60 ${
+          option ? option.style : UNKNOWN_STATUS_STYLE
+        }`}
+      >
+        {!option && <option value={status}>Unknown</option>}
+        {STATUS_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+
+      <svg
+        className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-current opacity-70"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          fillRule="evenodd"
+          d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+          clipRule="evenodd"
+        />
+      </svg>
+    </div>
+  );
+}
+
 const getInitials = (name?: string) => {
   if (!name) return '?';
+
   return (
     name
       .split(/\s+/)
@@ -142,8 +239,276 @@ const getInitials = (name?: string) => {
   );
 };
 
+/* ========================================
+   EDIT TASK MODAL
+======================================== */
+
+interface EditTaskModalProps {
+  task: TaskItem;
+  members: { id: number; name: string }[];
+  saving: boolean;
+  error: string;
+  onClose: () => void;
+  onSave: (
+    payload: Omit<UpdateTaskPayload, 'taskId'>
+  ) => Promise<{ success: boolean; message?: string }>;
+}
+
+function toLocalDateInput(value?: string) {
+  if (!value) return '';
+
+  // A date-only value should not be shifted by the timezone.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function EditTaskModal({
+  task,
+  members,
+  saving,
+  error,
+  onClose,
+  onSave,
+}: EditTaskModalProps) {
+  const [name, setName] = useState(task.name ?? '');
+  const [description, setDescription] = useState(
+    task.description ?? ''
+  );
+  const [assigneeId, setAssigneeId] = useState(
+    task.assignee_id == null ? '' : String(task.assignee_id)
+  );
+  const [dueDate, setDueDate] = useState(
+    toLocalDateInput(task.due_date)
+  );
+  const [priority, setPriority] = useState(
+    String(task.priority)
+  );
+  const [formError, setFormError] = useState('');
+
+  const handleSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+    setFormError('');
+
+    if (!name.trim()) {
+      setFormError('Please enter a task name.');
+      return;
+    }
+
+    if (!dueDate) {
+      setFormError('Please select a due date.');
+      return;
+    }
+
+    const result = await onSave({
+      name: name.trim(),
+      description: description.trim(),
+      assignee_id: assigneeId ? Number(assigneeId) : null,
+      due_date: dueDate,
+      priority: Number(priority),
+    });
+
+    if (!result.success) {
+      setFormError(result.message || 'Unable to update task.');
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !saving) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-task-title"
+        className="w-full max-w-xl overflow-hidden rounded-2xl border border-[#cbdbcb] bg-white shadow-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-[#edf3ec] px-6 py-5">
+          <div>
+            <h2
+              id="edit-task-title"
+              className="text-xl font-extrabold text-[#091e13]"
+            >
+              Edit Task
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Update the task details below.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            aria-label="Close edit task form"
+            className="rounded-lg px-3 py-1 text-2xl text-slate-400 hover:bg-[#f4f7f4] hover:text-slate-700 disabled:opacity-50"
+          >
+            ×
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5 p-6">
+          {(formError || error) && (
+            <div
+              role="alert"
+              className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+            >
+              {formError || error}
+            </div>
+          )}
+
+          <div>
+            <label
+              htmlFor="edit-task-name"
+              className="mb-1.5 block text-sm font-semibold text-slate-700"
+            >
+              Task Name *
+            </label>
+            <input
+              id="edit-task-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+              maxLength={200}
+              className="w-full rounded-xl border border-[#cbdbcb] px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
+              placeholder="Enter task name"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="edit-task-description"
+              className="mb-1.5 block text-sm font-semibold text-slate-700"
+            >
+              Description
+            </label>
+            <textarea
+              id="edit-task-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              rows={3}
+              className="w-full resize-y rounded-xl border border-[#cbdbcb] px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
+              placeholder="Enter task description"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="edit-task-assignee"
+              className="mb-1.5 block text-sm font-semibold text-slate-700"
+            >
+              Assignee
+            </label>
+            <select
+              id="edit-task-assignee"
+              value={assigneeId}
+              onChange={(event) => setAssigneeId(event.target.value)}
+              className="w-full rounded-xl border border-[#cbdbcb] bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
+            >
+              <option value="">Unassigned</option>
+
+              {members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                </option>
+              ))}
+
+              {task.assignee_id != null &&
+                !members.some(
+                  (member) => member.id === task.assignee_id
+                ) && (
+                  <option value={task.assignee_id}>
+                    {task.assignee_name ||
+                      `Member ${task.assignee_id}`}
+                  </option>
+                )}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="edit-task-due-date"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Due Date *
+              </label>
+              <input
+                id="edit-task-due-date"
+                type="date"
+                value={dueDate}
+                onChange={(event) => setDueDate(event.target.value)}
+                required
+                className="w-full rounded-xl border border-[#cbdbcb] bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="edit-task-priority"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Priority
+              </label>
+              <select
+                id="edit-task-priority"
+                value={priority}
+                onChange={(event) => setPriority(event.target.value)}
+                className="w-full rounded-xl border border-[#cbdbcb] bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
+              >
+                <option value="1">Low</option>
+                <option value="2">Medium</option>
+                <option value="3">High</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-[#edf3ec] pt-5">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-xl border border-[#cbdbcb] bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-[#f4f7f4] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-xl bg-[#1b6b36] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#14562b] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ========================================
+   TASK OPERATIONS
+======================================== */
+
 function TaskOperations({
-  tasks = [],
+  tasks: tasksProp = [],
   projects = [],
   workspaceName = 'Workspace',
   loading = false,
@@ -152,34 +517,143 @@ function TaskOperations({
   onNewTask,
   onViewTask,
   onEditTask,
+  onChangeStatus,
 }: TaskOperationsProps) {
-  const [selectedProjectId, setSelectedProjectId] = useState<number | 'all'>('all');
+  const [selectedProjectId, setSelectedProjectId] = useState<
+    number | 'all'
+  >('all');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPriority, setSelectedPriority] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [activeView, setActiveView] = useState<ViewMode>('list');
 
-  // Hero illustration: /images/cartoon-dev-taskboard.png -> /loginlogo.png -> emoji
+  const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(
+    null
+  );
+  const [statusError, setStatusError] = useState('');
+  const [statusSuccess, setStatusSuccess] = useState('');
+  const [statusOverrides, setStatusOverrides] = useState<
+    Record<number, number>
+  >({});
+
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
   const [heroSrc, setHeroSrc] = useState<string | null>('/task.png');
 
-  // Scope tabs built from the projects you pass in
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setStatusOverrides({});
+  }, [tasksProp]);
+
+  const tasks = useMemo(
+    () =>
+      tasksProp.map((task) =>
+        statusOverrides[task.id] !== undefined
+          ? { ...task, status: statusOverrides[task.id] }
+          : task
+      ),
+    [tasksProp, statusOverrides]
+  );
+
+  const handleStatusChange = async (
+    task: TaskItem,
+    status: number
+  ) => {
+    if (!onChangeStatus || status === task.status) return;
+
+    setStatusError('');
+    setStatusSuccess('');
+    setUpdatingTaskId(task.id);
+
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+      successTimeoutRef.current = null;
+    }
+
+    try {
+      const result = await onChangeStatus(task, status);
+
+      if (
+        result &&
+        typeof result === 'object' &&
+        result.success === false
+      ) {
+        setStatusError(
+          result.message || 'Failed to update the status.'
+        );
+        return;
+      }
+
+      setStatusOverrides((prev) => ({
+        ...prev,
+        [task.id]: status,
+      }));
+
+      setStatusSuccess('Status changed successfully!');
+
+      successTimeoutRef.current = setTimeout(() => {
+        setStatusSuccess('');
+        successTimeoutRef.current = null;
+      }, 3000);
+    } catch (err: unknown) {
+      setStatusError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to update the status.'
+      );
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  };
+
+  const dismissStatusSuccess = () => {
+    setStatusSuccess('');
+
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+      successTimeoutRef.current = null;
+    }
+  };
+
   const projectTabs = useMemo(
     () => [
-      { id: 'all' as const, name: 'All Projects', dotColor: undefined as string | undefined },
+      {
+        id: 'all' as const,
+        name: 'All Projects',
+        dotColor: undefined as string | undefined,
+      },
       ...projects.map((p, i) => ({
         id: p.id,
         name: p.name,
-        dotColor: PROJECT_DOT_COLORS[i % PROJECT_DOT_COLORS.length] as string | undefined,
+        dotColor: PROJECT_DOT_COLORS[
+          i % PROJECT_DOT_COLORS.length
+        ] as string | undefined,
       })),
     ],
     [projects]
   );
 
-  // Filtered tasks
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+
     return tasks.filter((task) => {
-      if (selectedProjectId !== 'all' && task.project_id !== selectedProjectId) return false;
+      if (
+        selectedProjectId !== 'all' &&
+        task.project_id !== selectedProjectId
+      ) {
+        return false;
+      }
+
       if (
         query &&
         !task.name.toLowerCase().includes(query) &&
@@ -188,55 +662,125 @@ function TaskOperations({
       ) {
         return false;
       }
-      if (selectedPriority !== 'all' && String(task.priority) !== selectedPriority) return false;
-      if (selectedStatus !== 'all' && String(task.status) !== selectedStatus) return false;
+
+      if (
+        selectedPriority !== 'all' &&
+        String(task.priority) !== selectedPriority
+      ) {
+        return false;
+      }
+
+      if (
+        selectedStatus !== 'all' &&
+        String(task.status) !== selectedStatus
+      ) {
+        return false;
+      }
+
       return true;
     });
-  }, [tasks, selectedProjectId, searchQuery, selectedPriority, selectedStatus]);
+  }, [
+    tasks,
+    selectedProjectId,
+    searchQuery,
+    selectedPriority,
+    selectedStatus,
+  ]);
 
-  // Timeline: tasks ordered by due date
-  const timelineTasks = useMemo(() => {
-    return [...filteredTasks].sort((a, b) => {
-      const da = Date.parse(a.due_date);
-      const db = Date.parse(b.due_date);
-      if (Number.isNaN(da) && Number.isNaN(db)) return 0;
-      if (Number.isNaN(da)) return 1;
-      if (Number.isNaN(db)) return -1;
-      return da - db;
-    });
-  }, [filteredTasks]);
+  const timelineTasks = useMemo(
+    () =>
+      [...filteredTasks].sort((a, b) => {
+        const da = Date.parse(a.due_date);
+        const db = Date.parse(b.due_date);
 
-  // Assignee with the most tasks in the current view
+        if (Number.isNaN(da) && Number.isNaN(db)) return 0;
+        if (Number.isNaN(da)) return 1;
+        if (Number.isNaN(db)) return -1;
+
+        return da - db;
+      }),
+    [filteredTasks]
+  );
+
   const leadAssignee = useMemo(() => {
     const counts = new Map<string, number>();
-    filteredTasks.forEach((t) => {
-      if (t.assignee_name) counts.set(t.assignee_name, (counts.get(t.assignee_name) ?? 0) + 1);
+
+    filteredTasks.forEach((task) => {
+      if (task.assignee_name) {
+        counts.set(
+          task.assignee_name,
+          (counts.get(task.assignee_name) ?? 0) + 1
+        );
+      }
     });
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+    return (
+      Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ??
+      null
+    );
   }, [filteredTasks]);
 
-  const fixingCount = filteredTasks.filter((t) => t.status === 2).length;
-  const retestCount = filteredTasks.filter((t) => t.status === 3 || t.status === 4).length;
-  const completedCount = tasks.filter((t) => t.status === 7).length;
+  const fixingCount = filteredTasks.filter(
+    (task) => task.status === 2
+  ).length;
+
+  const retestCount = filteredTasks.filter(
+    (task) => task.status === 3 || task.status === 4
+  ).length;
+
+  const completedCount = tasks.filter(
+    (task) => task.status === 7
+  ).length;
 
   const selectedProjectName =
-    selectedProjectId === 'all' ? null : projects.find((p) => p.id === selectedProjectId)?.name ?? null;
+    selectedProjectId === 'all'
+      ? null
+      : projects.find((project) => project.id === selectedProjectId)?.name ??
+        null;
 
   const viewButtonClass = (view: ViewMode) =>
     `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-      activeView === view ? 'bg-[#081b2c] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+      activeView === view
+        ? 'bg-[#081b2c] text-white shadow-sm'
+        : 'text-slate-600 hover:text-slate-900'
     }`;
 
   const selectClass =
     'px-3 py-2 bg-white border border-[#cbdbcb] rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#081b2c]';
 
+  const listGrid =
+    'grid grid-cols-[110px_minmax(220px,1.5fr)_minmax(170px,1fr)_minmax(185px,1.2fr)_120px_160px_150px] items-center gap-4';
+
   return (
     <div className="min-h-screen bg-[#dbe5d8] text-slate-800 p-4 sm:p-6 md:p-8 font-sans antialiased">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* 1. HERO HEADER CARD */}
+        {statusSuccess && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed right-6 top-6 z-[100] flex items-center gap-3 rounded-xl border border-emerald-200 bg-white px-5 py-4 text-sm text-slate-800 shadow-xl"
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e7f7ec] text-lg font-bold text-[#1b6b36]">
+              ✓
+            </span>
+            <div>
+              <p className="font-bold text-[#1b6b36]">Success!</p>
+              <p className="text-slate-600">{statusSuccess}</p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissStatusSuccess}
+              aria-label="Dismiss success message"
+              className="ml-2 text-lg text-slate-400 hover:text-slate-700"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* HERO HEADER */}
         <div className="bg-white rounded-3xl border border-[#cbdbcb] p-6 sm:p-8 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-3 max-w-2xl">
-            {/* Breadcrumb indicator */}
             <div className="flex items-center gap-2 text-xs font-mono font-bold tracking-wider text-slate-500 uppercase">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
               <span>{workspaceName}</span>
@@ -244,44 +788,29 @@ function TaskOperations({
               <span className="text-[#2d5034]">SPRINT TASKS HUB</span>
             </div>
 
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-[#091e13] tracking-tight">Task Operations</h1>
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-[#091e13] tracking-tight">
+              Task Operations
+            </h1>
 
             <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
-              Orchestrate deliverable velocity, triage tickets, and switch seamlessly between active engineering
-              projects across all microservices and client apps.
+              Orchestrate deliverable velocity, triage tickets, and switch
+              seamlessly between active engineering projects across all
+              microservices and client apps.
             </p>
 
-            {/* Quick metric badges (counted from your data) */}
             <div className="flex flex-wrap items-center gap-2 pt-2">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#edf3ec] border border-[#d2ded1] text-xs font-bold text-slate-700">
-                <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                  />
-                </svg>
-                <span>
-                  {projects.length} {projects.length === 1 ? 'Project' : 'Projects'}
-                </span>
+                <span>{projects.length} {projects.length === 1 ? 'Project' : 'Projects'}</span>
               </div>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#edf3ec] border border-[#d2ded1] text-xs font-bold text-slate-700">
-                <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
                 <span>{tasks.length} Tasks Tracked</span>
               </div>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#edf3ec] border border-[#d2ded1] text-xs font-bold text-[#1b6b36]">
-                <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
                 <span>{completedCount} Completed</span>
               </div>
             </div>
           </div>
 
-          {/* Right mascot card */}
           <div className="shrink-0 w-44 sm:w-52 h-44 sm:h-52 rounded-2xl bg-[#edf3ec] border border-[#d2ded1] p-2 flex items-center justify-center overflow-hidden">
             {heroSrc ? (
               <img
@@ -289,42 +818,45 @@ function TaskOperations({
                 alt="Sprint task operations mascot"
                 className="w-full h-full object-contain"
                 onError={() =>
-                  setHeroSrc((prev) => (prev === '/task.png' ? '/task.png' : null))
+                  setHeroSrc((prev) =>
+                    prev === '/task.png' ? '/loginlogo.png' : null
+                  )
                 }
               />
             ) : (
               <div className="flex flex-col items-center justify-center text-center p-3">
-                <span className="text-5xl" aria-hidden="true">
-                  📋
-                </span>
+                <span className="text-5xl" aria-hidden="true">📋</span>
                 <span className="text-xs font-bold text-slate-600 mt-2">Sprint Board</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* 2. PROJECT SELECTION & SCOPE TABS */}
+        {/* PROJECT SELECTION */}
         <div className="bg-white rounded-2xl border border-[#cbdbcb] p-4 shadow-sm">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-wider text-slate-600">
-              <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-              <span>PROJECT SELECTION &amp; SCOPE</span>
+            <div className="text-xs font-mono font-bold uppercase tracking-wider text-slate-600">
+              PROJECT SELECTION &amp; SCOPE
             </div>
+
             <div className="flex flex-col items-start gap-2 lg:items-end">
               <button
                 type="button"
-                onClick={() => onNewTask?.(selectedProjectId === 'all' ? undefined : selectedProjectId)}
+                onClick={() =>
+                  onNewTask?.(
+                    selectedProjectId === 'all'
+                      ? undefined
+                      : selectedProjectId
+                  )
+                }
                 className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#1b6b36] px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#14562b]"
               >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />
-                </svg>
-                <span>New Task</span>
+                + New Task
               </button>
               <span className="text-xs text-slate-400">
-                {selectedProjectName ? `Showing tasks for ${selectedProjectName}` : 'Showing tasks for all projects'}
+                {selectedProjectName
+                  ? `Showing tasks for ${selectedProjectName}`
+                  : 'Showing tasks for all projects'}
               </span>
             </div>
           </div>
@@ -332,7 +864,10 @@ function TaskOperations({
           <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[#edf3ec]">
             {projectTabs.map((tab) => {
               const isActive = selectedProjectId === tab.id;
-              const count = tab.id === 'all' ? tasks.length : tasks.filter((t) => t.project_id === tab.id).length;
+              const count =
+                tab.id === 'all'
+                  ? tasks.length
+                  : tasks.filter((task) => task.project_id === tab.id).length;
 
               return (
                 <button
@@ -346,23 +881,15 @@ function TaskOperations({
                       : 'bg-[#f4f7f4] hover:bg-[#e6eee5] text-slate-700 border border-[#d2ded1]'
                   }`}
                 >
-                  {tab.dotColor && <span className={`w-2 h-2 rounded-full ${tab.dotColor}`} />}
-                  {tab.id === 'all' && (
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
-                      />
-                    </svg>
+                  {tab.dotColor && (
+                    <span className={`w-2 h-2 rounded-full ${tab.dotColor}`} />
                   )}
                   <span>{tab.name}</span>
-                  <span
-                    className={`ml-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold ${
-                      isActive ? 'bg-white/20 text-white' : 'bg-[#dce8db] text-[#2d5034]'
-                    }`}
-                  >
+                  <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold ${
+                    isActive
+                      ? 'bg-white/20 text-white'
+                      : 'bg-[#dce8db] text-[#2d5034]'
+                  }`}>
                     {count}
                   </span>
                 </button>
@@ -371,172 +898,127 @@ function TaskOperations({
           </div>
         </div>
 
-        {/* 3. STATS CARDS */}
+        {/* STATS */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-2xl border border-[#cbdbcb] p-4 flex items-center justify-between shadow-sm">
-            <div>
-              <div className="text-[11px] font-mono uppercase font-bold text-slate-500">TOTAL ACTIVE TASKS</div>
-              <div className="text-2xl font-black text-slate-900 mt-1">{String(filteredTasks.length).padStart(2, '0')}</div>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-[#edf3ec] border border-[#d2ded1] flex items-center justify-center text-slate-600">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-              </svg>
-            </div>
+          <div className="bg-white rounded-2xl border border-[#cbdbcb] p-4 shadow-sm">
+            <div className="text-[11px] font-mono uppercase font-bold text-slate-500">TOTAL ACTIVE TASKS</div>
+            <div className="text-2xl font-black text-slate-900 mt-1">{String(filteredTasks.length).padStart(2, '0')}</div>
           </div>
-
-          <div className="bg-white rounded-2xl border border-[#cbdbcb] p-4 flex items-center justify-between shadow-sm">
-            <div>
-              <div className="text-[11px] font-mono uppercase font-bold text-slate-500">FIXING</div>
-              <div className="text-2xl font-black text-emerald-700 mt-1">{String(fixingCount).padStart(2, '0')}</div>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-[#e7f7ec] border border-[#c4e8cb] flex items-center justify-center text-emerald-700">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
+          <div className="bg-white rounded-2xl border border-[#cbdbcb] p-4 shadow-sm">
+            <div className="text-[11px] font-mono uppercase font-bold text-slate-500">FIXING</div>
+            <div className="text-2xl font-black text-emerald-700 mt-1">{String(fixingCount).padStart(2, '0')}</div>
           </div>
-
-          <div className="bg-white rounded-2xl border border-[#cbdbcb] p-4 flex items-center justify-between shadow-sm">
-            <div>
-              <div className="text-[11px] font-mono uppercase font-bold text-slate-500">READY FOR RETEST</div>
-              <div className="text-2xl font-black text-amber-600 mt-1">{String(retestCount).padStart(2, '0')}</div>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
+          <div className="bg-white rounded-2xl border border-[#cbdbcb] p-4 shadow-sm">
+            <div className="text-[11px] font-mono uppercase font-bold text-slate-500">READY FOR RETEST</div>
+            <div className="text-2xl font-black text-amber-600 mt-1">{String(retestCount).padStart(2, '0')}</div>
           </div>
-
-          <div className="min-h-[88px] bg-white rounded-2xl border border-[#cbdbcb] p-4 flex items-center justify-between shadow-sm">
-              <div className="min-w-0">
-                <div className="text-[11px] font-mono uppercase font-bold text-slate-500">LEAD ASSIGNEE</div>
-                {leadAssignee ? (
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="w-6 h-6 rounded-full bg-[#081b2c] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
-                      {getInitials(leadAssignee)}
-                    </span>
-                    <span className="text-xs font-bold text-slate-800 truncate">{leadAssignee}</span>
-                  </div>
-                ) : (
-                  <div className="text-2xl font-black text-slate-300 mt-1">—</div>
-                )}
+          <div className="bg-white rounded-2xl border border-[#cbdbcb] p-4 shadow-sm">
+            <div className="text-[11px] font-mono uppercase font-bold text-slate-500">LEAD ASSIGNEE</div>
+            {leadAssignee ? (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="w-6 h-6 rounded-full bg-[#081b2c] text-white flex items-center justify-center text-[10px] font-bold">
+                  {getInitials(leadAssignee)}
+                </span>
+                <span className="text-xs font-bold text-slate-800 truncate">{leadAssignee}</span>
               </div>
-              <div className="w-9 h-9 rounded-xl bg-[#edf3ec] border border-[#d2ded1] flex items-center justify-center text-slate-600 shrink-0">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
+            ) : (
+              <div className="text-2xl font-black text-slate-300 mt-1">—</div>
+            )}
           </div>
         </div>
 
-        {/* 4. CONTROLS BAR */}
+        {/* VIEW / FILTER CONTROLS */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* View mode switcher */}
           <div className="inline-flex p-1 bg-white border border-[#cbdbcb] rounded-xl self-start">
-            <button type="button" onClick={() => setActiveView('list')} aria-pressed={activeView === 'list'} className={viewButtonClass('list')}>
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-              <span>List View</span>
-            </button>
-            <button type="button" onClick={() => setActiveView('kanban')} aria-pressed={activeView === 'kanban'} className={viewButtonClass('kanban')}>
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"
-                />
-              </svg>
-              <span>Kanban</span>
-            </button>
-            <button type="button" onClick={() => setActiveView('timeline')} aria-pressed={activeView === 'timeline'} className={viewButtonClass('timeline')}>
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span>Timeline</span>
-            </button>
+            {(['list', 'kanban', 'timeline'] as ViewMode[]).map((view) => (
+              <button
+                key={view}
+                type="button"
+                onClick={() => setActiveView(view)}
+                aria-pressed={activeView === view}
+                className={viewButtonClass(view)}
+              >
+                {view === 'list' ? 'List View' : view === 'kanban' ? 'Kanban' : 'Timeline'}
+              </button>
+            ))}
           </div>
 
-          {/* Search and filters */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[240px]">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search tasks across projects..."
-                aria-label="Search tasks"
-                className="w-full pl-9 pr-4 py-2 bg-white border border-[#cbdbcb] rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#081b2c]"
-              />
-            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search tasks across projects..."
+              aria-label="Search tasks"
+              className="min-w-[240px] px-4 py-2 bg-white border border-[#cbdbcb] rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#081b2c]"
+            />
 
-            <select value={selectedPriority} onChange={(e) => setSelectedPriority(e.target.value)} aria-label="Filter by priority" className={selectClass}>
+            <select
+              value={selectedPriority}
+              onChange={(event) => setSelectedPriority(event.target.value)}
+              aria-label="Filter by priority"
+              className={selectClass}
+            >
               <option value="all">All Priorities</option>
               <option value="1">Low</option>
               <option value="2">Medium</option>
               <option value="3">High</option>
             </select>
 
-            <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} aria-label="Filter by status" className={selectClass}>
+            <select
+              value={selectedStatus}
+              onChange={(event) => setSelectedStatus(event.target.value)}
+              aria-label="Filter by status"
+              className={selectClass}
+            >
               <option value="all">All Statuses</option>
-              <option value="1">Needs Triage</option>
-              <option value="2">Fixing</option>
-              <option value="3">Ready to Retest</option>
-              <option value="4">Retest</option>
-              <option value="5">Verified</option>
-              <option value="6">Closed</option>
-              <option value="7">Completed</option>
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
-
           </div>
         </div>
 
-        {/* Error banner */}
+        {/* ERRORS */}
         {error && (
-          <div role="alert" className="rounded-2xl bg-rose-50 border border-rose-200/80 px-5 py-3 text-sm text-rose-700 flex items-center justify-between gap-3">
+          <div role="alert" className="rounded-2xl bg-rose-50 border border-rose-200 px-5 py-3 text-sm text-rose-700 flex items-center justify-between gap-3">
             <span>{error}</span>
             {onRetry && (
-              <button
-                type="button"
-                onClick={onRetry}
-                className="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-colors"
-              >
+              <button type="button" onClick={onRetry} className="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-xs font-bold text-rose-700 hover:bg-rose-100">
                 Retry
               </button>
             )}
           </div>
         )}
 
-        {/* 5. TASKS AREA */}
+        {statusError && (
+          <div role="alert" className="rounded-2xl bg-rose-50 border border-rose-200 px-5 py-3 text-sm text-rose-700 flex items-center justify-between gap-3">
+            <span>{statusError}</span>
+            <button type="button" onClick={() => setStatusError('')} className="px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-xs font-bold text-rose-700">
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* TASK LIST */}
         {loading ? (
           <div className="bg-white rounded-3xl border border-[#cbdbcb] p-12 text-center text-slate-500 text-sm shadow-sm">
             Loading tasks...
           </div>
         ) : activeView === 'list' ? (
-          /* ---------- List view ---------- */
           <div className="bg-white rounded-3xl border border-[#cbdbcb] overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <div className="min-w-[1180px]">
-                {/* Table header row */}
-                <div className="grid grid-cols-[110px_minmax(220px,1.5fr)_minmax(170px,1fr)_minmax(185px,1.2fr)_120px_110px_150px] items-center gap-4 border-b border-[#edf3ec] bg-[#f8faf8] px-6 py-3.5 text-[11px] font-mono font-bold uppercase text-slate-500">
+              <div className="min-w-[1230px]">
+                <div className={`${listGrid} border-b border-[#edf3ec] bg-[#f8faf8] px-6 py-3.5 text-[11px] font-mono font-bold uppercase text-slate-500`}>
                   <div>TASK ID</div>
                   <div>TASK &amp; PROJECT HIERARCHY</div>
                   <div>ASSIGNEE</div>
                   <div>DUE DATE &amp; CREATED BY</div>
                   <div>PRIORITY</div>
                   <div>STATUS</div>
-                  <div className="text-left">ACTIONS</div>
+                  <div>ACTIONS</div>
                 </div>
 
-                {/* Task rows */}
                 <div className="divide-y divide-[#edf3ec]">
                   {filteredTasks.length === 0 ? (
                     <div className="p-12 text-center text-slate-500 text-sm">
@@ -544,90 +1026,53 @@ function TaskOperations({
                     </div>
                   ) : (
                     filteredTasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className="grid grid-cols-[110px_minmax(220px,1.5fr)_minmax(170px,1fr)_minmax(185px,1.2fr)_120px_110px_150px] items-center gap-4 px-6 py-4 hover:bg-[#f9fbf9] transition-colors group"
-                      >
-                        {/* Task ID with checkbox */}
+                      <div key={task.id} className={`${listGrid} px-6 py-4 hover:bg-[#f9fbf9] transition-colors group`}>
                         <div className="flex min-w-0 items-center gap-2.5">
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${task.task_code}`}
-                            className="w-4 h-4 rounded text-[#1b6b36] border-[#cbdbcb] focus:ring-[#1b6b36]"
-                          />
+                          <input type="checkbox" aria-label={`Select ${task.task_code}`} className="w-4 h-4 rounded text-[#1b6b36] border-[#cbdbcb] focus:ring-[#1b6b36]" />
                           <span className="font-mono text-xs font-bold text-slate-800">{task.task_code}</span>
                         </div>
 
-                        {/* Task title & project */}
                         <div className="min-w-0 space-y-1">
-                          <div className="text-sm font-bold text-[#091e13] group-hover:text-[#1b6b36] transition-colors">
-                            {task.name}
-                          </div>
+                          <div className="text-sm font-bold text-[#091e13] group-hover:text-[#1b6b36]">{task.name}</div>
                           <div className="text-xs text-slate-500 line-clamp-1">{task.description}</div>
-                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#edf3ec] text-[#2d5034] text-[11px] font-medium border border-[#d2ded1]">
-                            <svg className="w-3 h-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                            </svg>
-                            <span>{task.project_name}</span>
-                          </div>
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#edf3ec] text-[#2d5034] text-[11px] font-medium border border-[#d2ded1]">{task.project_name}</div>
                         </div>
 
-                        {/* Assignee */}
                         <div className="flex min-w-0 items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-[#081b2c] text-white flex items-center justify-center text-xs font-bold shrink-0">
-                            {getInitials(task.assignee_name)}
-                          </div>
+                          <div className="w-8 h-8 rounded-full bg-[#081b2c] text-white flex items-center justify-center text-xs font-bold shrink-0">{getInitials(task.assignee_name)}</div>
                           <div className="leading-tight min-w-0">
                             <div className="text-xs font-bold text-slate-900 truncate">{task.assignee_name || 'Unassigned'}</div>
-                            <div className="text-[10px] text-slate-500 truncate">
-                              {task.assignee_email || (task.assignee_id ? `Member ID: ${task.assignee_id}` : 'No member assigned')}
-                            </div>
-                            {task.assignee_role && (
-                              <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">{task.assignee_role}</div>
-                            )}
+                            <div className="text-[10px] text-slate-500 truncate">{task.assignee_email || (task.assignee_id ? `Member ID: ${task.assignee_id}` : 'No member assigned')}</div>
+                            {task.assignee_role && <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">{task.assignee_role}</div>}
                           </div>
                         </div>
 
-                        {/* Due date & created by */}
                         <div className="min-w-0 space-y-0.5 text-xs">
-                          <div className="flex items-center gap-1.5 text-slate-700 font-medium">
-                            <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            <span>{task.due_date || 'No due date'}</span>
-                          </div>
+                          <div className="text-slate-700 font-medium">{task.due_date || 'No due date'}</div>
                           <div className="text-[10px] font-mono text-slate-400">
-                            Created {task.created_at} by{' '}
-                            <span className="text-slate-600 font-bold">
-                              {task.created_by_name} (ID: {task.created_by})
-                            </span>
+                            Created {task.created_at} by <span className="text-slate-600 font-bold">{task.created_by_name} (ID: {task.created_by})</span>
                           </div>
                         </div>
 
-                        {/* Priority */}
-                        <div className="min-w-0">
-                          <PriorityBadge priority={task.priority} />
+                        <div><PriorityBadge priority={task.priority} /></div>
+
+                        <div>
+                          {onChangeStatus ? (
+                            <StatusSelect
+                              status={task.status}
+                              disabled={updatingTaskId === task.id}
+                              onChange={(status) => handleStatusChange(task, status)}
+                            />
+                          ) : (
+                            <StatusBadge status={task.status} />
+                          )}
                         </div>
 
-                        {/* Status */}
-                        <div className="min-w-0">
-                          <StatusBadge status={task.status} />
-                        </div>
-
-                        {/* Actions */}
                         <div className="flex min-w-0 items-center justify-start gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => onViewTask?.(task)}
-                            className="px-2.5 py-1 rounded-lg border border-[#cbdbcb] bg-white hover:bg-[#f4f7f4] text-slate-700 text-xs font-semibold transition-all"
-                          >
+                          <button type="button" onClick={() => onViewTask?.(task)} className="px-2.5 py-1 rounded-lg border border-[#cbdbcb] bg-white hover:bg-[#f4f7f4] text-slate-700 text-xs font-semibold">
                             Details
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => onEditTask?.(task)}
-                            className="px-2.5 py-1 rounded-lg border border-[#cbdbcb] bg-white hover:bg-[#f4f7f4] text-slate-700 text-xs font-semibold transition-all"
-                          >
+                          <button type="button" onClick={() => onEditTask?.(task)} className="px-2.5 py-1 rounded-lg border border-[#cbdbcb] bg-white hover:bg-[#f4f7f4] text-slate-700 text-xs font-semibold">
                             Edit
                           </button>
                         </div>
@@ -639,10 +1084,10 @@ function TaskOperations({
             </div>
           </div>
         ) : activeView === 'kanban' ? (
-          /* ---------- Kanban view ---------- */
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {STATUS_COLUMNS.map((column) => {
-              const columnTasks = filteredTasks.filter((t) => t.status === column.value);
+              const columnTasks = filteredTasks.filter((task) => task.status === column.value);
+
               return (
                 <div key={column.value} className="bg-white/70 rounded-2xl border border-[#cbdbcb] p-3 space-y-3">
                   <div className="flex items-center justify-between px-1">
@@ -651,9 +1096,7 @@ function TaskOperations({
                   </div>
 
                   {columnTasks.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-[#cbdbcb] py-6 text-center text-xs text-slate-400">
-                      No tasks
-                    </div>
+                    <div className="rounded-xl border border-dashed border-[#cbdbcb] py-6 text-center text-xs text-slate-400">No tasks</div>
                   ) : (
                     columnTasks.map((task) => (
                       <div key={task.id} className="bg-white rounded-xl border border-[#d2ded1] p-3 shadow-sm space-y-2">
@@ -664,16 +1107,18 @@ function TaskOperations({
                         <div className="text-sm font-bold text-[#091e13]">{task.name}</div>
                         <div className="text-[11px] text-slate-500">{task.project_name}</div>
                         <div className="flex items-center justify-between pt-1">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-6 h-6 rounded-full bg-[#081b2c] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
-                              {getInitials(task.assignee_name)}
-                            </span>
-                            <span className="min-w-0 truncate text-xs text-slate-600" title={task.assignee_email || task.assignee_name}>
-                              {task.assignee_name || 'Unassigned'}
-                              {task.assignee_email && <span className="block truncate text-[10px] text-slate-400">{task.assignee_email}</span>}
-                            </span>
+                          <span className="text-xs text-slate-600">{task.assignee_name || 'Unassigned'}</span>
+                          <span className="text-[11px] text-slate-400">{task.due_date}</span>
+                        </div>
+                        {onChangeStatus && (
+                          <div className="flex items-center justify-between gap-2 border-t border-[#edf3ec] pt-2">
+                            <span className="text-[10px] font-mono font-bold uppercase text-slate-400">Move to</span>
+                            <StatusSelect status={task.status} disabled={updatingTaskId === task.id} onChange={(status) => handleStatusChange(task, status)} />
                           </div>
-                          <span className="text-[11px] text-slate-400 shrink-0">{task.due_date}</span>
+                        )}
+                        <div className="flex gap-2 border-t border-[#edf3ec] pt-2">
+                          <button type="button" onClick={() => onViewTask?.(task)} className="text-xs font-semibold text-slate-600 hover:text-slate-900">Details</button>
+                          <button type="button" onClick={() => onEditTask?.(task)} className="text-xs font-semibold text-[#1b6b36] hover:underline">Edit</button>
                         </div>
                       </div>
                     ))
@@ -683,7 +1128,6 @@ function TaskOperations({
             })}
           </div>
         ) : (
-          /* ---------- Timeline view (ordered by due date) ---------- */
           <div className="bg-white rounded-3xl border border-[#cbdbcb] p-6 shadow-sm">
             {timelineTasks.length === 0 ? (
               <div className="py-6 text-center text-slate-500 text-sm">No tasks to show on the timeline.</div>
@@ -698,8 +1142,10 @@ function TaskOperations({
                       <span className="font-mono text-[11px] text-slate-400">{task.task_code}</span>
                       <StatusBadge status={task.status} />
                     </div>
-                    <div className="text-xs text-slate-500 mt-0.5">
-                      {task.project_name} • {task.assignee_name || 'Unassigned'}
+                    <div className="text-xs text-slate-500 mt-0.5">{task.project_name} • {task.assignee_name || 'Unassigned'}</div>
+                    <div className="flex gap-3 mt-2">
+                      <button type="button" onClick={() => onViewTask?.(task)} className="text-xs font-semibold text-slate-600 hover:text-slate-900">Details</button>
+                      <button type="button" onClick={() => onEditTask?.(task)} className="text-xs font-semibold text-[#1b6b36] hover:underline">Edit</button>
                     </div>
                   </li>
                 ))}
@@ -707,41 +1153,61 @@ function TaskOperations({
             )}
           </div>
         )}
-
       </div>
     </div>
   );
 }
 
+/* ========================================
+   TASK PAGE
+======================================== */
+
 function TaskPageContent() {
   const { collapsed } = useSidebar();
   const dispatch = useDispatch();
+
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
   const [initialTaskProjectId, setInitialTaskProjectId] = useState<number | undefined>();
+
+  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
+  const [editTaskLoading, setEditTaskLoading] = useState(false);
+  const [editTaskError, setEditTaskError] = useState('');
+  const [editTaskSuccess, setEditTaskSuccess] = useState('');
+
   const token = useSelector((state) => state.auth.token);
   const authUser = useSelector((state) => state.auth.user);
   const authWorkspace = useSelector((state) => state.auth.workspace);
   const dashboardWorkspace = useSelector((state) => state.dashboard.data?.workspace);
   const authProjects = useSelector((state) => state.auth.projects);
   const projectData = useSelector((state) => state.project.data);
-  const workspaceId = useSelector((state) =>
-    state.auth.workspace?.id ?? state.dashboard.data?.workspace?.id
+
+  const workspaceId = useSelector(
+    (state) => state.auth.workspace?.id ?? state.dashboard.data?.workspace?.id
   );
+
   const members = useSelector((state) => state.member.members);
   const tasks = useSelector((state) => state.task.tasks);
   const loading = useSelector((state) => state.task.loading);
   const error = useSelector((state) => state.task.error);
+
   const lastFetchKey = useRef('');
+
   const workspaceName = dashboardWorkspace?.name || authWorkspace?.name || 'Workspace';
 
   const projects = useMemo(() => {
     const byId = new Map<number, ProjectOption>();
+
     [...authProjects, ...projectData].forEach((project) => {
       byId.set(project.id, { id: project.id, name: project.name });
     });
+
     return Array.from(byId.values());
   }, [authProjects, projectData]);
-  const projectIdsKey = projects.map((project) => project.id).sort((a, b) => a - b).join(',');
+
+  const projectIdsKey = projects
+    .map((project) => project.id)
+    .sort((a, b) => a - b)
+    .join(',');
 
   useEffect(() => {
     if (token && projectData.length === 0) {
@@ -761,40 +1227,117 @@ function TaskPageContent() {
   }, [dispatch, token, workspaceId]);
 
   useEffect(() => {
-    if (!token || !projectIdsKey || lastFetchKey.current === projectIdsKey) return;
+    if (!token || !projectIdsKey) return;
+    if (lastFetchKey.current === projectIdsKey) return;
+
     lastFetchKey.current = projectIdsKey;
     const projectIds = projectIdsKey.split(',').map(Number);
     void dispatch(fetchTasksForProjects(projectIds));
   }, [dispatch, projectIdsKey, token]);
 
-  const taskItems = useMemo(() => tasks.map((task) => {
-    const assignee = members.find((member) => member.id === task.assignee_id);
-    return {
-      ...task,
-      task_code: task.task_code || `TASK-${task.id}`,
-      project_name: task.project_name || projects.find((project) => project.id === task.project_id)?.name || 'Project',
-      assignee_name: task.assignee_name || assignee?.name || '',
-      assignee_email: assignee?.email,
-      assignee_role: assignee?.role,
-      created_by_name: task.created_by_name || `Member ${task.created_by}`,
-    };
-  }), [members, projects, tasks]);
+  const taskItems = useMemo(
+    () =>
+      tasks.map((task) => {
+        const assignee = members.find((member) => member.id === task.assignee_id);
 
-  const userName = authUser?.name?.trim() || authUser?.email?.split('@')[0] || 'Guest User';
-  const userInitials = userName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+        return {
+          ...task,
+          task_code: task.task_code || `TASK-${task.id}`,
+          project_name:
+            task.project_name ||
+            projects.find((project) => project.id === task.project_id)?.name ||
+            'Project',
+          assignee_name: task.assignee_name || assignee?.name || '',
+          assignee_email: assignee?.email,
+          assignee_role: assignee?.role,
+          created_by_name: task.created_by_name || `Member ${task.created_by}`,
+        };
+      }),
+    [members, projects, tasks]
+  );
+
+  const userName =
+    authUser?.name?.trim() ||
+    authUser?.email?.split('@')[0] ||
+    'Guest User';
+
+  const userInitials = userName
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
   const retryTasks = () => {
+    if (!token || projects.length === 0) return;
     lastFetchKey.current = projectIdsKey;
     void dispatch(fetchTasksForProjects(projects.map((project) => project.id)));
   };
+
   const openCreateTask = (projectId?: number) => {
     setInitialTaskProjectId(projectId);
     setIsCreateTaskOpen(true);
   };
 
+  const handleChangeStatus = async (task: TaskItem, status: number) => {
+    dispatch(clearUpdateTaskStatusError());
+    return await dispatch(updateTaskStatus(task.id, status));
+  };
+
+  const openEditTask = (task: TaskItem) => {
+    setEditTaskError('');
+    setEditTaskSuccess('');
+    setEditingTask(task);
+  };
+
+  const handleEditTask = async (
+    payload: Omit<UpdateTaskPayload, 'taskId'>
+  ): Promise<{ success: boolean; message?: string }> => {
+    if (!editingTask) {
+      return { success: false, message: 'No task selected.' };
+    }
+
+    setEditTaskLoading(true);
+    setEditTaskError('');
+    dispatch(clearUpdateTaskError());
+
+    try {
+      const result = await dispatch(
+        updateTask({
+          taskId: editingTask.id,
+          ...payload,
+        })
+      );
+
+      if (!result.success) {
+        const message = result.message || 'Failed to update task.';
+        setEditTaskError(message);
+        return { success: false, message };
+      }
+
+      setEditingTask(null);
+      setEditTaskSuccess(result.message || 'Task updated successfully!');
+
+      return { success: true, message: result.message };
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to update task.';
+      setEditTaskError(message);
+      return { success: false, message };
+    } finally {
+      setEditTaskLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#dbe5d8]">
       <Sidebar />
-      <main className={`min-h-screen pt-14 transition-all duration-300 lg:pt-0 ${collapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
+
+      <main
+        className={`min-h-screen pt-14 transition-all duration-300 lg:pt-0 ${
+          collapsed ? 'lg:ml-20' : 'lg:ml-64'
+        }`}
+      >
         <div className="px-4 pt-4 sm:px-6 lg:px-7">
           <Header
             userName={userName}
@@ -804,6 +1347,7 @@ function TaskPageContent() {
             activeTab="Task"
           />
         </div>
+
         <TaskOperations
           tasks={taskItems}
           projects={projects}
@@ -812,20 +1356,69 @@ function TaskPageContent() {
           error={error || ''}
           onRetry={retryTasks}
           onNewTask={openCreateTask}
+          onEditTask={openEditTask}
+          onChangeStatus={handleChangeStatus}
         />
       </main>
+
       {isCreateTaskOpen && (
         <CreateTaskModal
           isOpen={isCreateTaskOpen}
           initialProjectId={initialTaskProjectId}
           projects={projects}
-          assignees={members.map((member) => ({ id: member.id, name: member.name }))}
+          assignees={members.map((member) => ({
+            id: member.id,
+            name: member.name,
+          }))}
           onClose={() => setIsCreateTaskOpen(false)}
           onSubmitSuccess={async (payload) => {
-            const result = await dispatch(createTask(payload));
-            return result;
+            return await dispatch(createTask(payload));
           }}
         />
+      )}
+
+      {editingTask && (
+        <EditTaskModal
+          key={editingTask.id}
+          task={editingTask}
+          members={members.map((member) => ({
+            id: member.id,
+            name: member.name,
+          }))}
+          saving={editTaskLoading}
+          error={editTaskError}
+          onClose={() => {
+            if (!editTaskLoading) {
+              setEditingTask(null);
+              setEditTaskError('');
+            }
+          }}
+          onSave={handleEditTask}
+        />
+      )}
+
+      {editTaskSuccess && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed right-6 top-6 z-[120] flex items-center gap-3 rounded-xl border border-emerald-200 bg-white px-5 py-4 text-sm text-slate-800 shadow-xl"
+        >
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e7f7ec] text-lg font-bold text-[#1b6b36]">
+            ✓
+          </span>
+          <div>
+            <p className="font-bold text-[#1b6b36]">Success!</p>
+            <p className="text-slate-600">{editTaskSuccess}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditTaskSuccess('')}
+            aria-label="Dismiss success message"
+            className="ml-2 text-lg text-slate-400 hover:text-slate-700"
+          >
+            ×
+          </button>
+        </div>
       )}
     </div>
   );
