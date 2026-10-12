@@ -243,6 +243,10 @@ const getInitials = (name?: string) => {
    EDIT TASK MODAL
 ======================================== */
 
+/* ========================================
+   EDIT TASK MODAL
+======================================== */
+
 interface EditTaskModalProps {
   task: TaskItem;
   members: { id: number; name: string }[];
@@ -257,12 +261,13 @@ interface EditTaskModalProps {
 function toLocalDateInput(value?: string) {
   if (!value) return '';
 
-  // A date-only value should not be shifted by the timezone.
+  // Preserve date-only values without timezone conversion.
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return value;
   }
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return '';
 
   const year = date.getFullYear();
@@ -295,6 +300,12 @@ function EditTaskModal({
   );
   const [formError, setFormError] = useState('');
 
+  const inputClass =
+    'w-full rounded-xl border border-[#d5e2d1] bg-[#f7faf5] px-4 py-3 text-sm text-[#243b29] placeholder:text-[#91a091] outline-none transition-all focus:border-[#47734d] focus:bg-white focus:ring-4 focus:ring-[#47734d]/10 disabled:cursor-not-allowed disabled:opacity-60';
+
+  const labelClass =
+    'mb-2 block text-sm font-semibold text-[#304b36]';
+
   const handleSubmit = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
@@ -320,15 +331,20 @@ function EditTaskModal({
     });
 
     if (!result.success) {
-      setFormError(result.message || 'Unable to update task.');
+      setFormError(
+        result.message || 'Unable to update task. Please try again.'
+      );
     }
   };
 
   return (
     <div
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"
+      className="fixed inset-0 z-[110] flex items-center justify-center overflow-y-auto bg-[#15251a]/55 p-3 backdrop-blur-sm sm:p-6"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) {
+        if (
+          event.target === event.currentTarget &&
+          !saving
+        ) {
           onClose();
         }
       }}
@@ -337,165 +353,401 @@ function EditTaskModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-task-title"
-        className="w-full max-w-xl overflow-hidden rounded-2xl border border-[#cbdbcb] bg-white shadow-2xl"
+        className="my-auto w-full max-w-2xl overflow-hidden rounded-3xl border border-[#d5e2d1] bg-white shadow-[0_24px_80px_rgba(24,50,29,0.22)]"
       >
-        <div className="flex items-center justify-between border-b border-[#edf3ec] px-6 py-5">
-          <div>
-            <h2
-              id="edit-task-title"
-              className="text-xl font-extrabold text-[#091e13]"
-            >
-              Edit Task
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Update the task details below.
-            </p>
-          </div>
+        {/* Modal heading */}
+        <div className="relative overflow-hidden border-b border-[#e4ece0] bg-gradient-to-br from-[#f5f9f2] via-white to-[#eaf2e6] px-5 py-6 sm:px-8 sm:py-7">
+          <div className="absolute -right-8 -top-12 h-36 w-36 rounded-full bg-[#dce9d6]/60" />
+          <div className="absolute -right-2 -top-5 h-24 w-24 rounded-full border border-[#d0e0c9]/70" />
 
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            aria-label="Close edit task form"
-            className="rounded-lg px-3 py-1 text-2xl text-slate-400 hover:bg-[#f4f7f4] hover:text-slate-700 disabled:opacity-50"
-          >
-            ×
-          </button>
-        </div>
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#d5e3d0] bg-white text-[#315b3d] shadow-sm">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  className="h-6 w-6"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 20h9"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M16.5 3.5a2.12 2.12 0 013 3L8 18l-4 1 1-4Z"
+                  />
+                </svg>
+              </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5 p-6">
-          {(formError || error) && (
-            <div
-              role="alert"
-              className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
-            >
-              {formError || error}
-            </div>
-          )}
+              <div>
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-[#d6e5d1] bg-[#eaf3e6] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#426849]">
+                    Task Management
+                  </span>
+                  <span className="font-mono text-[11px] font-semibold text-[#829080]">
+                    {task.task_code || `TASK-${task.id}`}
+                  </span>
+                </div>
 
-          <div>
-            <label
-              htmlFor="edit-task-name"
-              className="mb-1.5 block text-sm font-semibold text-slate-700"
-            >
-              Task Name *
-            </label>
-            <input
-              id="edit-task-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              maxLength={200}
-              className="w-full rounded-xl border border-[#cbdbcb] px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
-              placeholder="Enter task name"
-            />
-          </div>
+                <h2
+                  id="edit-task-title"
+                  className="text-2xl font-extrabold tracking-tight text-[#24452e] sm:text-3xl"
+                >
+                  Update Task
+                </h2>
 
-          <div>
-            <label
-              htmlFor="edit-task-description"
-              className="mb-1.5 block text-sm font-semibold text-slate-700"
-            >
-              Description
-            </label>
-            <textarea
-              id="edit-task-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={3}
-              className="w-full resize-y rounded-xl border border-[#cbdbcb] px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
-              placeholder="Enter task description"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="edit-task-assignee"
-              className="mb-1.5 block text-sm font-semibold text-slate-700"
-            >
-              Assignee
-            </label>
-            <select
-              id="edit-task-assignee"
-              value={assigneeId}
-              onChange={(event) => setAssigneeId(event.target.value)}
-              className="w-full rounded-xl border border-[#cbdbcb] bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
-            >
-              <option value="">Unassigned</option>
-
-              {members.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.name}
-                </option>
-              ))}
-
-              {task.assignee_id != null &&
-                !members.some(
-                  (member) => member.id === task.assignee_id
-                ) && (
-                  <option value={task.assignee_id}>
-                    {task.assignee_name ||
-                      `Member ${task.assignee_id}`}
-                  </option>
-                )}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label
-                htmlFor="edit-task-due-date"
-                className="mb-1.5 block text-sm font-semibold text-slate-700"
-              >
-                Due Date *
-              </label>
-              <input
-                id="edit-task-due-date"
-                type="date"
-                value={dueDate}
-                onChange={(event) => setDueDate(event.target.value)}
-                required
-                className="w-full rounded-xl border border-[#cbdbcb] bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
-              />
+                <p className="mt-1.5 max-w-md text-sm leading-6 text-[#718071]">
+                  Make changes to the task details and save them to
+                  your workspace.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <label
-                htmlFor="edit-task-priority"
-                className="mb-1.5 block text-sm font-semibold text-slate-700"
-              >
-                Priority
-              </label>
-              <select
-                id="edit-task-priority"
-                value={priority}
-                onChange={(event) => setPriority(event.target.value)}
-                className="w-full rounded-xl border border-[#cbdbcb] bg-white px-4 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1b6b36]/30"
-              >
-                <option value="1">Low</option>
-                <option value="2">Medium</option>
-                <option value="3">High</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 border-t border-[#edf3ec] pt-5">
             <button
               type="button"
               onClick={onClose}
               disabled={saving}
-              className="rounded-xl border border-[#cbdbcb] bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-[#f4f7f4] disabled:opacity-50"
+              aria-label="Close update task form"
+              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#dce7d8] bg-white/90 text-xl text-[#6b7c6b] transition hover:border-[#a9c3a4] hover:bg-[#eaf3e6] hover:text-[#315b3d] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Cancel
+              ×
             </button>
+          </div>
+        </div>
 
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-xl bg-[#1b6b36] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#14562b] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
+        <form onSubmit={handleSubmit}>
+          <div className="max-h-[65vh] space-y-6 overflow-y-auto px-5 py-6 sm:px-8 sm:py-7">
+            {(formError || error) && (
+              <div
+                role="alert"
+                className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3.5 text-sm text-rose-700"
+              >
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 font-bold">
+                  !
+                </span>
+                <p>{formError || error}</p>
+              </div>
+            )}
+
+            {/* Task name */}
+            <div>
+              <label
+                htmlFor="edit-task-name"
+                className={labelClass}
+              >
+                Task Name <span className="text-rose-500">*</span>
+              </label>
+
+              <input
+                id="edit-task-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+                maxLength={200}
+                disabled={saving}
+                placeholder="Enter a clear task name"
+                className={inputClass}
+              />
+              <p className="mt-1.5 text-xs text-[#879487]">
+                Give your task a short, descriptive name.
+              </p>
+            </div>
+
+            {/* Description */}
+            <div>
+              <label
+                htmlFor="edit-task-description"
+                className={labelClass}
+              >
+                Description
+                <span className="ml-2 font-normal text-[#91a091]">
+                  (Optional)
+                </span>
+              </label>
+
+              <textarea
+                id="edit-task-description"
+                value={description}
+                onChange={(event) =>
+                  setDescription(event.target.value)
+                }
+                rows={4}
+                disabled={saving}
+                placeholder="Add details, requirements, or notes about this task..."
+                className={`${inputClass} min-h-[110px] resize-y leading-6`}
+              />
+            </div>
+
+            {/* Assignment and due date */}
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="edit-task-assignee"
+                  className={labelClass}
+                >
+                  <span className="flex items-center gap-2">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      className="h-4 w-4 text-[#628368]"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M16 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"
+                      />
+                      <circle cx="10" cy="7" r="4" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M20 8v6m3-3h-6"
+                      />
+                    </svg>
+                    Assign To
+                  </span>
+                </label>
+
+                <select
+                  id="edit-task-assignee"
+                  value={assigneeId}
+                  onChange={(event) =>
+                    setAssigneeId(event.target.value)
+                  }
+                  disabled={saving}
+                  className={inputClass}
+                >
+                  <option value="">Unassigned</option>
+
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+
+                  {task.assignee_id != null &&
+                    !members.some(
+                      (member) =>
+                        member.id === task.assignee_id
+                    ) && (
+                      <option value={task.assignee_id}>
+                        {task.assignee_name ||
+                          `Member ${task.assignee_id}`}
+                      </option>
+                    )}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="edit-task-due-date"
+                  className={labelClass}
+                >
+                  <span className="flex items-center gap-2">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      className="h-4 w-4 text-[#628368]"
+                      aria-hidden="true"
+                    >
+                      <rect
+                        x="3"
+                        y="5"
+                        width="18"
+                        height="16"
+                        rx="2"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        d="M16 3v4M8 3v4M3 10h18"
+                      />
+                    </svg>
+                    Due Date{' '}
+                    <span className="text-rose-500">*</span>
+                  </span>
+                </label>
+
+                <input
+                  id="edit-task-due-date"
+                  type="date"
+                  value={dueDate}
+                  onChange={(event) =>
+                    setDueDate(event.target.value)
+                  }
+                  required
+                  disabled={saving}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            {/* Priority */}
+            <div>
+              <label className={labelClass}>
+                Priority Level
+              </label>
+
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  {
+                    value: '1',
+                    label: 'Low',
+                    description: 'Can wait',
+                    selectedClass:
+                      'border-[#9bb5d1] bg-[#eff5fb] text-[#355c85] ring-2 ring-[#dce8f5]',
+                    dotClass: 'bg-[#7097c1]',
+                  },
+                  {
+                    value: '2',
+                    label: 'Medium',
+                    description: 'Normal priority',
+                    selectedClass:
+                      'border-[#7eaa83] bg-[#edf5e9] text-[#315b3d] ring-2 ring-[#dcebd6]',
+                    dotClass: 'bg-[#47734d]',
+                  },
+                  {
+                    value: '3',
+                    label: 'High',
+                    description: 'Needs attention',
+                    selectedClass:
+                      'border-[#e0b58a] bg-[#fff5e9] text-[#925c24] ring-2 ring-[#f9e6ce]',
+                    dotClass: 'bg-[#d18a3d]',
+                  },
+                ].map((option) => {
+                  const selected = priority === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={saving}
+                      onClick={() => setPriority(option.value)}
+                      aria-pressed={selected}
+                      className={`rounded-2xl border p-3 text-left transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
+                        selected
+                          ? option.selectedClass
+                          : 'border-[#e0e9dc] bg-white text-[#627062] hover:border-[#b9cfb3] hover:bg-[#f8faf6]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full ${option.dotClass}`}
+                        />
+                        <span className="text-sm font-bold">
+                          {option.label}
+                        </span>
+                      </span>
+
+                      <span className="mt-1.5 block text-[10px] leading-4 opacity-80 sm:text-xs">
+                        {option.description}
+                      </span>
+
+                      <span className="mt-3 flex justify-end">
+                        <span
+                          className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                            selected
+                              ? 'border-[#47734d] bg-[#47734d] text-white'
+                              : 'border-[#cbd8c7] bg-white'
+                          }`}
+                        >
+                          {selected && (
+                            <svg
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                              className="h-3 w-3"
+                              aria-hidden="true"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M16.704 5.29a1 1 0 010 1.414l-7.2 7.2a1 1 0 01-1.415 0l-3.6-3.6a1 1 0 111.415-1.414l2.892 2.892 6.493-6.492a1 1 0 011.415 0z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer actions */}
+          <div className="flex flex-col-reverse gap-3 border-t border-[#e4ece0] bg-[#f8faf6] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+            <p className="hidden text-xs text-[#849184] sm:block">
+              Changes will be saved to your workspace.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving}
+                className="rounded-xl border border-[#d4e0d0] bg-white px-5 py-3 text-sm font-semibold text-[#526652] transition hover:border-[#a9c3a4] hover:bg-[#edf4e9] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex min-w-[145px] items-center justify-center gap-2 rounded-xl bg-[#315b3d] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#24482f] hover:shadow-md focus:outline-none focus:ring-4 focus:ring-[#47734d]/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saving ? (
+                  <>
+                    <svg
+                      className="h-4 w-4 animate-spin"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-90"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      />
+                    </svg>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 12l4 4L19 6"
+                      />
+                    </svg>
+                    Save Changes
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>
