@@ -4,7 +4,8 @@ import authReducer from "../store/auth/authSlice"
 import dashboardReducer from "../store/dashboard/dashBoardSlice"
 import projectReducer from "../store/project/projectSlice"
 import memberReducer from '../store/member/memberSlice';
-import taskReducer from "../store/task/taskSlice"
+import taskReducer from "../store/task/taskSlice";
+import reportReducer from './report/reportSlice';
 
 
 // Combined reducers
@@ -14,7 +15,7 @@ const rootReducer = combineReducers({
   project: projectReducer,
   member: memberReducer,
   task: taskReducer,
-
+  report: reportReducer,
 });
 
 export const store = configureStore({

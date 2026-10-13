@@ -3,12 +3,14 @@
 import React, { useState, useEffect, useRef, FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useDispatch } from "../store/hooks";
+import { useDispatch, useSelector } from "../store/hooks";
 import { loginUser } from "../store/auth/authSlice";
 
 export default function LoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
+  const token = useSelector((state) => state.auth.token);
+  const loginAttemptRef = useRef(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,6 +24,12 @@ export default function LoginPage() {
   const leftPupilRef = useRef<HTMLDivElement>(null);
   const rightPupilRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (token && !loginAttemptRef.current) {
+      router.replace("/dashboard");
+    }
+  }, [router, token]);
+
   // ============ Submit handler ============
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -30,15 +38,17 @@ export default function LoginPage() {
       setError("Enter your email and password to continue.");
       return;
     }
+    loginAttemptRef.current = true;
     setLoading(true);
     const result = await dispatch(loginUser({ email, password }));
     setLoading(false);
     if (result.success) {
       setSuccess(true);
       setTimeout(() => {
-        router.push("/dashboard");
+        router.replace("/dashboard");
       }, 700);
     } else {
+      loginAttemptRef.current = false;
       setError(result.message || "Invalid email or password.");
     }
   }
