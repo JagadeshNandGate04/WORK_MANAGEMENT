@@ -1,17 +1,9 @@
 'use client';
 
-import React, { useState, ChangeEvent, FormEvent, KeyboardEvent } from 'react';
+import React, { useEffect, useMemo, useState, ChangeEvent, FormEvent } from 'react';
 import { useDispatch, useSelector } from '../store/hooks';
 import { createProject } from '../store/project/projectSlice';
-
-interface Member {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  initials: string;
-  avatarBg: string;
-}
+import { fetchWorkspaceMembers, type Member as WorkspaceMember } from '../store/member/memberSlice';
 
 interface CreateProjectFormProps {
   onClose: () => void;
@@ -21,10 +13,51 @@ export default function CreateProjectPage({ onClose }: CreateProjectFormProps) {
   const dispatch = useDispatch();
   const creating = useSelector((state) => state.project.creating);
   const createError = useSelector((state) => state.project.createError);
+  const workspaceId = useSelector((state) =>
+    state.auth.workspace?.id ?? state.dashboard.data?.workspace?.id
+  );
   const [projectName, setProjectName] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [memberInput, setMemberInput] = useState<string>('');
-  const [members, setMembers] = useState<Member[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [selectedMemberIds, setSelectedMemberIds] = useState<number[]>([]);
+  const [memberLoadResult, setMemberLoadResult] = useState<{
+    workspaceId: number;
+    members: WorkspaceMember[];
+    error: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+
+    let cancelled = false;
+    void dispatch(fetchWorkspaceMembers(workspaceId)).then((result) => {
+      if (!cancelled) {
+        setMemberLoadResult({
+          workspaceId,
+          members: result.success ? result.data ?? [] : [],
+          error: result.success ? null : result.message,
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, workspaceId]);
+
+  const membersLoaded = memberLoadResult?.workspaceId === workspaceId;
+  const workspaceMembers = useMemo(
+    () => (membersLoaded ? memberLoadResult?.members ?? [] : []),
+    [membersLoaded, memberLoadResult]
+  );
+  const filteredMembers = useMemo(() => {
+    const search = memberSearch.trim().toLowerCase();
+    return workspaceMembers.filter((member) =>
+      !search || `${member.name} ${member.email}`.toLowerCase().includes(search)
+    );
+  }, [memberSearch, workspaceMembers]);
+  const selectedMembers = workspaceMembers.filter((member) =>
+    selectedMemberIds.includes(member.id)
+  );
 
   // Avatar background color rotation for added members
   const colorOptions = [
@@ -36,41 +69,10 @@ export default function CreateProjectPage({ onClose }: CreateProjectFormProps) {
     'bg-sky-500',
   ];
 
-  const handleAddMember = () => {
-    const trimmed = memberInput.trim();
-    if (!trimmed) return;
-
-    // Generate initials
-    const parts = trimmed.split(' ');
-    const initials =
-      parts.length > 1
-        ? (parts[0][0] + parts[1][0]).toUpperCase()
-        : trimmed.slice(0, 2).toUpperCase();
-
-    const newMember: Member = {
-      id: Date.now().toString(),
-      name: trimmed,
-      email: trimmed.includes('@')
-        ? trimmed
-        : `${trimmed.toLowerCase().replace(/\s+/g, '')}@nandgate.io`,
-      role: 'Contributor',
-      initials,
-      avatarBg: colorOptions[members.length % colorOptions.length],
-    };
-
-    setMembers((prev) => [...prev, newMember]);
-    setMemberInput('');
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleAddMember();
-    }
-  };
-
-  const handleRemoveMember = (id: string) => {
-    setMembers((prev) => prev.filter((m) => m.id !== id));
+  const handleToggleMember = (id: number) => {
+    setSelectedMemberIds((current) =>
+      current.includes(id) ? current.filter((memberId) => memberId !== id) : [...current, id]
+    );
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -80,7 +82,7 @@ export default function CreateProjectPage({ onClose }: CreateProjectFormProps) {
       createProject({
         name: projectName.trim(),
         description: description.trim(),
-        members: [],
+        members: selectedMemberIds,
       })
     );
 
@@ -93,7 +95,8 @@ export default function CreateProjectPage({ onClose }: CreateProjectFormProps) {
   const handleReset = () => {
     setProjectName('');
     setDescription('');
-    setMembers([]);
+    setMemberSearch('');
+    setSelectedMemberIds([]);
   };
 
   return (
@@ -292,95 +295,75 @@ export default function CreateProjectPage({ onClose }: CreateProjectFormProps) {
                   Members &amp; Collaborators
                 </label>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#e2ede0] text-[#1b6b47] border border-[#c8e2c4]">
-                  {members.length} assigned
+                  {selectedMemberIds.length} assigned
                 </span>
               </div>
 
-              {/* Add Member Input Pill */}
-              <div className="flex items-center gap-2 mb-3">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    value={memberInput}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                      setMemberInput(e.target.value)
-                    }
-                    onKeyDown={handleKeyDown}
-                    placeholder="Add members by name, email, or handle..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-[#f8fafc] border border-[#cbd5e1] rounded-xl text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0f172a] focus:bg-white transition-all"
-                  />
-                  <svg
-                    className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-                    />
-                  </svg>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAddMember}
-                  disabled={!memberInput.trim()}
-                  className="px-4 py-2.5 bg-white border border-[#cbd5e1] hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shrink-0"
-                >
-                  + Add
-                </button>
+              <input
+                type="search"
+                value={memberSearch}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setMemberSearch(e.target.value)}
+                placeholder="Search workspace members by name or email..."
+                disabled={!membersLoaded}
+                aria-label="Search workspace members"
+                className="mb-3 w-full rounded-xl border border-[#cbd5e1] bg-[#f8fafc] px-4 py-2.5 text-sm font-medium text-slate-800 placeholder-slate-400 transition-all focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0f172a] disabled:opacity-60"
+              />
+
+              <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/70 p-2">
+                {!workspaceId ? (
+                  <p className="px-3 py-4 text-center text-xs text-slate-500">No active workspace found.</p>
+                ) : !membersLoaded ? (
+                  <p className="px-3 py-4 text-center text-xs text-slate-500">Loading workspace members…</p>
+                ) : memberLoadResult?.error ? (
+                  <p className="px-3 py-4 text-center text-xs text-rose-700" role="alert">
+                    {memberLoadResult?.error}
+                  </p>
+                ) : filteredMembers.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-xs text-slate-500">
+                    {workspaceMembers.length === 0 ? 'No workspace members found.' : 'No members match your search.'}
+                  </p>
+                ) : filteredMembers.map((member, index) => {
+                  const selected = selectedMemberIds.includes(member.id);
+                  const initials = member.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+                  return (
+                    <label
+                      key={member.id}
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors ${selected ? 'bg-emerald-50' : 'hover:bg-white'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => handleToggleMember(member.id)}
+                        className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
+                      />
+                      <span className={`flex h-8 w-8 items-center justify-center rounded-full ${colorOptions[index % colorOptions.length]} text-[10px] font-bold text-white`}>
+                        {initials || '?'}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-semibold text-slate-800">{member.name}</span>
+                        <span className="block truncate text-[10px] text-slate-500">{member.email}</span>
+                      </span>
+                      <span className="text-[10px] text-slate-500">{member.role}</span>
+                    </label>
+                  );
+                })}
               </div>
 
-              {/* Active Collaborator Chips */}
-              {members.length > 0 ? (
-                <div className="flex flex-wrap gap-2 pt-1 max-h-36 overflow-y-auto pr-1">
-                  {members.map((member) => (
-                    <div
-                      key={member.id}
-                      className="inline-flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-xl bg-white border border-slate-200/90 shadow-sm text-xs font-medium text-slate-700 hover:border-slate-300 transition-colors"
-                    >
-                      <div
-                        className={`w-6 h-6 rounded-lg ${member.avatarBg} text-white font-bold flex items-center justify-center text-[10px] shadow-xs`}
-                      >
-                        {member.initials}
-                      </div>
-                      <span className="font-semibold text-slate-900">
-                        {member.name}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-normal">
-                        ({member.role})
-                      </span>
+              {selectedMembers.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedMembers.map((member) => (
+                    <span key={member.id} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
+                      {member.name}
                       <button
                         type="button"
-                        onClick={() => handleRemoveMember(member.id)}
-                        className="ml-1 text-slate-400 hover:text-rose-500 rounded p-0.5 transition-colors"
-                        title={`Remove ${member.name}`}
+                        onClick={() => handleToggleMember(member.id)}
+                        className="ml-2 text-emerald-600 hover:text-rose-600"
+                        aria-label={`Remove ${member.name}`}
                       >
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2.2}
-                            d="M6 18L18 6M6 6l12 12"
-                          />
-                        </svg>
+                        ×
                       </button>
-                    </div>
+                    </span>
                   ))}
-                </div>
-              ) : (
-                <div className="border border-dashed border-slate-200 rounded-xl py-3 px-4 text-center">
-                  <p className="text-xs text-slate-400 font-medium">
-                    No team members added yet. Type above and press Enter to
-                    assign collaborators.
-                  </p>
                 </div>
               )}
             </div>
