@@ -12,7 +12,6 @@ interface CreateTaskModalProps {
   onSubmitSuccess?: (payload: CreateTaskPayload) => void | { success: boolean; message?: string } | Promise<void | { success: boolean; message?: string }>;
   initialProjectId?: number;
   projects: ProjectOption[];
-  assignees: TeamMemberOption[];
 }
 
 export interface CreateTaskPayload {
@@ -32,6 +31,7 @@ export interface CreateTaskPayload {
 interface ProjectOption {
   id: number;
   name: string;
+  members?: TeamMemberOption[];
 }
 
 interface TeamMemberOption {
@@ -49,7 +49,6 @@ export default function CreateTaskModal({
   onSubmitSuccess,
   initialProjectId,
   projects: projectOptions,
-  assignees: teamMemberOptions,
 }: CreateTaskModalProps) {
   // ---- Form State (all cleared, no prefilled mock data) ----
   const [projectId, setProjectId] = useState<number | ''>(initialProjectId || '');
@@ -59,6 +58,9 @@ export default function CreateTaskModal({
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<number>(2); // Default: Medium
   const [status, setStatus] = useState<number>(1); // Default: Needs Triage
+  const selectedProjectMembers = projectOptions.find(
+    (project) => project.id === Number(projectId)
+  )?.members ?? [];
 
   // ---- Loading & error ----
   const [loading, setLoading] = useState(false);
@@ -256,9 +258,10 @@ export default function CreateTaskModal({
                   </span>
                   <select
                     value={projectId}
-                    onChange={(e) =>
-                      setProjectId(e.target.value ? Number(e.target.value) : '')
-                    }
+                    onChange={(e) => {
+                      setProjectId(e.target.value ? Number(e.target.value) : '');
+                      setAssigneeId(null);
+                    }}
                     required
                     className="w-full cursor-pointer appearance-none rounded-xl border border-[#cbdbcb] bg-white py-2.5 pl-10 pr-9 text-xs font-medium text-slate-900 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#081b2c]"
                   >
@@ -371,11 +374,14 @@ export default function CreateTaskModal({
                       className="w-full cursor-pointer appearance-none rounded-xl border border-[#cbdbcb] bg-white py-2.5 pl-10 pr-9 text-xs font-medium text-slate-900 transition-all focus:outline-none focus:ring-2 focus:ring-[#081b2c]"
                     >
                       <option value="null">Unassigned (null)</option>
-                      {teamMemberOptions.map((m) => (
+                      {selectedProjectMembers.map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.name}
                         </option>
                       ))}
+                      {selectedProjectMembers.length === 0 && (
+                        <option value="null" disabled>No project members assigned</option>
+                      )}
                     </select>
                     <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400">
                       <svg

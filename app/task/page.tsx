@@ -42,6 +42,7 @@ export interface TaskItem {
 export interface ProjectOption {
   id: number;
   name: string;
+  members?: { id: number; name: string }[];
 }
 
 type ActionResult = void | { success: boolean; message?: string };
@@ -1450,7 +1451,12 @@ function TaskPageContent() {
     const byId = new Map<number, ProjectOption>();
 
     [...authProjects, ...projectData].forEach((project) => {
-      byId.set(project.id, { id: project.id, name: project.name });
+      const existing = byId.get(project.id);
+      byId.set(project.id, {
+        id: project.id,
+        name: project.name,
+        members: project.members ?? existing?.members ?? [],
+      });
     });
 
     return Array.from(byId.values());
@@ -1460,6 +1466,11 @@ function TaskPageContent() {
     .map((project) => project.id)
     .sort((a, b) => a - b)
     .join(',');
+
+  const isWorkspaceMember = [authUser?.role, authWorkspace?.role]
+    .some((role) => role?.trim().toUpperCase() === 'MEMBER');
+  const loggedInMemberId = isWorkspaceMember ? authUser?.id : undefined;
+  const taskFetchKey = `${isWorkspaceMember ? `member:${authUser?.id ?? ''}` : 'all'}|${projectIdsKey}`;
 
   useEffect(() => {
     if (token && projectData.length === 0) {
@@ -1480,12 +1491,13 @@ function TaskPageContent() {
 
   useEffect(() => {
     if (!token || !projectIdsKey) return;
-    if (lastFetchKey.current === projectIdsKey) return;
+    if (isWorkspaceMember && !loggedInMemberId) return;
+    if (lastFetchKey.current === taskFetchKey) return;
 
-    lastFetchKey.current = projectIdsKey;
+    lastFetchKey.current = taskFetchKey;
     const projectIds = projectIdsKey.split(',').map(Number);
-    void dispatch(fetchTasksForProjects(projectIds));
-  }, [dispatch, projectIdsKey, token]);
+    void dispatch(fetchTasksForProjects(projectIds, loggedInMemberId));
+  }, [dispatch, isWorkspaceMember, loggedInMemberId, projectIdsKey, taskFetchKey, token]);
 
   const taskItems = useMemo(
     () =>
@@ -1521,9 +1533,11 @@ function TaskPageContent() {
     .toUpperCase();
 
   const retryTasks = () => {
-    if (!token || projects.length === 0) return;
-    lastFetchKey.current = projectIdsKey;
-    void dispatch(fetchTasksForProjects(projects.map((project) => project.id)));
+    if (!token || projects.length === 0 || (isWorkspaceMember && !loggedInMemberId)) return;
+    lastFetchKey.current = taskFetchKey;
+    void dispatch(
+      fetchTasksForProjects(projects.map((project) => project.id), loggedInMemberId)
+    );
   };
 
   const openCreateTask = (projectId?: number) => {
@@ -1618,10 +1632,6 @@ function TaskPageContent() {
           isOpen={isCreateTaskOpen}
           initialProjectId={initialTaskProjectId}
           projects={projects}
-          assignees={members.map((member) => ({
-            id: member.id,
-            name: member.name,
-          }))}
           onClose={() => setIsCreateTaskOpen(false)}
           onSubmitSuccess={async (payload) => {
             return await dispatch(createTask(payload));

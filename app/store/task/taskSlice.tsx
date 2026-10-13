@@ -345,7 +345,7 @@ export const fetchTasksByProject =
 // ========================================
 
 export const fetchTasksForProjects =
-  (projectIds: number[]) =>
+  (projectIds: number[], memberId?: number) =>
   async (dispatch: AppDispatch, getState: () => RootState) => {
     dispatch(fetchTasksStart());
 
@@ -367,6 +367,12 @@ export const fetchTasksForProjects =
         )
       );
 
+      if (memberId !== undefined && (!Number.isInteger(memberId) || memberId <= 0)) {
+        const message = 'A valid member is required to fetch member tasks.';
+        dispatch(fetchTasksFailure(message));
+        return { success: false, message };
+      }
+
       if (uniqueProjectIds.length === 0) {
         dispatch(fetchTasksSuccess([]));
 
@@ -380,7 +386,9 @@ export const fetchTasksForProjects =
       const responses = await Promise.all(
         uniqueProjectIds.map(async (projectId) => {
           const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/tasks/projects/${projectId}/tasks`,
+            `${process.env.NEXT_PUBLIC_API_URL}/api/tasks/projects/${projectId}${
+              memberId === undefined ? '' : `/members/${memberId}`
+            }/tasks`,
             {
               method: 'GET',
               headers: {
