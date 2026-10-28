@@ -6,6 +6,8 @@ import projectReducer from "../store/project/projectSlice"
 import memberReducer from '../store/member/memberSlice';
 import taskReducer from "../store/task/taskSlice";
 import reportReducer from './report/reportSlice';
+import chatReducer from "../store/chat/chatSlice";
+
 
 
 
@@ -18,6 +20,7 @@ const rootReducer = combineReducers({
   member: memberReducer,
   task: taskReducer,
   report: reportReducer,
+  chat: chatReducer,
 });
 
 export const store = configureStore({
