@@ -531,21 +531,62 @@ export const changePassword =
 // ========================================
 // Logout Thunk
 // ========================================
-//
-// No backend logout endpoint yet.
-// This only clears the local Redux authentication state.
-// ========================================
 
 export const performLogout =
-  () => async (dispatch: AppDispatch) => {
+  () =>
+  async (dispatch: AppDispatch, getState: () => RootState) => {
+    try {
+      const token = getState().auth.token;
 
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('work-management-auth');
+      if (!token) {
+        const message = 'Please sign in again before logging out.';
+        return { success: false, message };
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/logout`,
+        {
+          method: 'POST',
+
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        const message = result.message || 'Logout failed';
+
+        return {
+          success: false,
+          message,
+        };
+      }
+
+      // Logout successful: clear locally stored authentication.
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('work-management-auth');
+      }
+
+      // Clear Redux authentication state.
+      dispatch(logout());
+
+      return {
+        success: true,
+        message: result.message || 'Logout successful',
+      };
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unknown error';
+
+      return {
+        success: false,
+        message,
+      };
     }
-    dispatch(logout());
-
-    return {
-      success: true,
-      message: 'Logged out successfully',
-    };
   };

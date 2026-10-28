@@ -1,4 +1,3 @@
-
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { AppDispatch, RootState } from '../store';
 
@@ -62,6 +61,10 @@ interface TaskState {
 
   updating: boolean;
   updateError: string | null;
+
+   // Delete task state
+  deleting: boolean;
+  deleteError: string | null;
 }
 
 // ========================================
@@ -82,6 +85,10 @@ const initialState: TaskState = {
 
   updating: false,
   updateError: null,
+
+   // Delete task state
+  deleting: false,
+  deleteError: null,
 };
 
 // ========================================
@@ -221,6 +228,30 @@ const taskSlice = createSlice({
       state.updateError = null;
     },
 
+    // Delete task
+deleteTaskStart(state) {
+  state.deleting = true;
+  state.deleteError = null;
+},
+
+deleteTaskSuccess(state, action: PayloadAction<{ id: number }>) {
+  state.deleting = false;
+  state.deleteError = null;
+
+  state.tasks = state.tasks.filter(
+    (task) => task.id !== action.payload.id
+  );
+},
+
+deleteTaskFailure(state, action: PayloadAction<string>) {
+  state.deleting = false;
+  state.deleteError = action.payload;
+},
+
+clearDeleteTaskError(state) {
+  state.deleteError = null;
+},
+
     // Reset task state
     resetTaskState(state) {
       state.tasks = [];
@@ -236,6 +267,9 @@ const taskSlice = createSlice({
 
       state.updating = false;
       state.updateError = null;
+
+      state.deleting = false;
+      state.deleteError = null;
     },
   },
 });
@@ -265,6 +299,12 @@ export const {
   updateTaskSuccess,
   updateTaskFailure,
   clearUpdateTaskError,
+
+  // Delete task actions
+  deleteTaskStart,
+  deleteTaskSuccess,
+  deleteTaskFailure,
+  clearDeleteTaskError,
 
   resetTaskState,
 } = taskSlice.actions;
@@ -700,6 +740,70 @@ export const updateTask =
           : 'Unable to update task.';
 
       dispatch(updateTaskFailure(message));
+      return { success: false, message };
+    }
+  };
+
+// ========================================
+// Delete Task
+// ========================================
+
+export const deleteTask =
+  (taskId: number) =>
+  async (dispatch: AppDispatch, getState: () => RootState) => {
+    dispatch(deleteTaskStart());
+
+    try {
+      const token = getState().auth.token;
+
+      if (!token) {
+        const message = 'Please sign in again before deleting a task.';
+
+        dispatch(deleteTaskFailure(message));
+        return { success: false, message };
+      }
+
+      if (!taskId) {
+        const message = 'Invalid task ID.';
+
+        dispatch(deleteTaskFailure(message));
+        return { success: false, message };
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/tasks/${taskId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.success) {
+        const message = result.message || 'Failed to delete task.';
+
+        dispatch(deleteTaskFailure(message));
+        return { success: false, message };
+      }
+
+      // Remove the task from Redux using the ID returned by the API.
+      const deletedTaskId = result.data?.id ?? taskId;
+
+      dispatch(deleteTaskSuccess({ id: deletedTaskId }));
+
+      return {
+        success: true,
+        message: result.message || 'Task deleted successfully',
+        data: result.data,
+      };
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown error';
+
+      dispatch(deleteTaskFailure(message));
       return { success: false, message };
     }
   };

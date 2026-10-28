@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -8,7 +9,11 @@ import CreateNewProjectForm from '../components/CreateNewProjectForm';
 import EditProjectForm from '../components/EditProjectForm';
 import { SidebarProvider, useSidebar } from '../components/SidebarContext';
 import { useDispatch, useSelector } from '../store/hooks';
-import { fetchProjects } from '../store/project/projectSlice';
+import {
+  fetchProjects,
+  deleteProject,
+  clearDeleteProjectError,
+} from '../store/project/projectSlice';
 
 interface ProjectDisplayItem {
   id: string;
@@ -32,9 +37,12 @@ function toDisplayProject(project: {
 }): ProjectDisplayItem {
   const name = project.name.trim();
   const normalizedName = name.toLowerCase();
-  const category = normalizedName.includes('health') || normalizedName.includes('clear path')
-    ? 'HEALTHCARE'
-    : 'COMMUNITY';
+
+  const category =
+    normalizedName.includes('health') ||
+    normalizedName.includes('clear path')
+      ? 'HEALTHCARE'
+      : 'COMMUNITY';
 
   return {
     id: String(project.id),
@@ -55,15 +63,27 @@ function toDisplayProject(project: {
 function ProjectPageContent() {
   const { collapsed } = useSidebar();
   const dispatch = useDispatch();
+
   const token = useSelector((state) => state.auth.token);
   const authUser = useSelector((state) => state.auth.user);
   const projectData = useSelector((state) => state.project.data);
   const loading = useSelector((state) => state.project.loading);
   const error = useSelector((state) => state.project.error);
+  const deleting = useSelector((state) => state.project.deleting);
+  const deleteError = useSelector((state) => state.project.deleteError);
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<'All Projects' | 'Healthcare' | 'Community'>('All Projects');
+  const [selectedFilter, setSelectedFilter] = useState<
+    'All Projects' | 'Healthcare' | 'Community'
+  >('All Projects');
+
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<ProjectDisplayItem | null>(null);
+  const [selectedProject, setSelectedProject] =
+    useState<ProjectDisplayItem | null>(null);
+
+  // Project selected for deletion confirmation
+  const [projectToDelete, setProjectToDelete] =
+    useState<ProjectDisplayItem | null>(null);
 
   useEffect(() => {
     if (token) {
@@ -97,31 +117,89 @@ function ProjectPageContent() {
 
   const filteredProjects = useMemo(() => {
     const search = searchQuery.trim().toLowerCase();
+
     return projects.filter((project) => {
-      const matchesSearch = !search || `${project.name} ${project.description}`.toLowerCase().includes(search);
-      const matchesFilter = selectedFilter === 'All Projects'
-        || (selectedFilter === 'Healthcare' && project.category === 'HEALTHCARE')
-        || (selectedFilter === 'Community' && project.category === 'COMMUNITY');
+      const matchesSearch =
+        !search ||
+        `${project.name} ${project.description}`
+          .toLowerCase()
+          .includes(search);
+
+      const matchesFilter =
+        selectedFilter === 'All Projects' ||
+        (selectedFilter === 'Healthcare' &&
+          project.category === 'HEALTHCARE') ||
+        (selectedFilter === 'Community' &&
+          project.category === 'COMMUNITY');
+
       return matchesSearch && matchesFilter;
     });
   }, [projects, searchQuery, selectedFilter]);
 
-  const headerName = authUser?.name?.trim() || authUser?.email?.split('@')[0] || 'Guest User';
+  const headerName =
+    authUser?.name?.trim() ||
+    authUser?.email?.split('@')[0] ||
+    'Guest User';
+
   const userInitials = headerName
     .split(/\s+/)
     .map((part) => part[0])
     .join('')
     .slice(0, 2)
     .toUpperCase();
-  const headerRole = authUser?.role || authUser?.designation || 'Team member';
 
-  const isOverlayOpen = isCreateProjectOpen || selectedProject !== null;
+  const headerRole =
+    authUser?.role || authUser?.designation || 'Team member';
+
+  const isOverlayOpen =
+    isCreateProjectOpen ||
+    selectedProject !== null ||
+    projectToDelete !== null;
+
+  // Open the delete confirmation popup
+  const handleOpenDeleteConfirmation = (
+    project: ProjectDisplayItem
+  ) => {
+    if (deleting) return;
+
+    dispatch(clearDeleteProjectError());
+    setProjectToDelete(project);
+  };
+
+  // Close the popup without making an API request
+  const handleCancelDelete = () => {
+    if (deleting) return;
+
+    setProjectToDelete(null);
+    dispatch(clearDeleteProjectError());
+  };
+
+  // Call the DELETE project API after confirmation
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete || deleting) return;
+
+    const result = await dispatch(
+      deleteProject(Number(projectToDelete.id))
+    );
+
+    if (result.success) {
+      setProjectToDelete(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#dce7dc] text-[#1e293b] font-sans antialiased selection:bg-[#0f172a] selection:text-white">
       {!isOverlayOpen && <Sidebar />}
 
-      <div className={`min-h-screen pt-14 transition-all duration-300 lg:pt-0 ${isOverlayOpen ? 'lg:ml-0' : collapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
+      <div
+        className={`min-h-screen pt-14 transition-all duration-300 lg:pt-0 ${
+          isOverlayOpen
+            ? 'lg:ml-0'
+            : collapsed
+              ? 'lg:ml-20'
+              : 'lg:ml-64'
+        }`}
+      >
         <div className="px-4 pt-4 sm:px-6 lg:px-7">
           <Header
             userName={headerName}
@@ -133,12 +211,14 @@ function ProjectPageContent() {
         </div>
 
         <div className="max-w-[1440px] w-full mx-auto space-y-6 p-6 sm:p-8 lg:p-10">
+          {/* Projects overview */}
           <section className="relative flex flex-col overflow-hidden rounded-[32px] border border-[#d2dfd1] bg-[#edf3ec]/90 p-8 shadow-sm lg:flex-row lg:items-center lg:justify-between lg:p-10">
             <div className="relative z-10 max-w-2xl space-y-4">
               <div className="inline-flex items-center gap-2 rounded-full border border-[#cbdbca] bg-[#e2ede0] px-3.5 py-1 text-[11px] font-bold uppercase tracking-wider text-[#34543b]">
                 <span className="h-2 w-2 rounded-full bg-[#10b981]" />
                 NANDGATE WORKSPACES
               </div>
+
               <h1 className="flex items-center gap-3 text-3xl font-extrabold tracking-tight text-[#0f172a] sm:text-4xl lg:text-5xl">
                 Projects Overview
                 <img
@@ -147,20 +227,30 @@ function ProjectPageContent() {
                   className="inline-block h-8 w-8 object-contain sm:h-10 sm:w-10"
                 />
               </h1>
+
               <p className="max-w-xl text-sm leading-relaxed text-[#475569] sm:text-base">
-                Manage your production repositories, client healthcare initiatives, and synchronized engineering workspaces across distributed teams.
+                Manage your production repositories, client healthcare
+                initiatives, and synchronized engineering workspaces across
+                distributed teams.
               </p>
+
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsCreateProjectOpen(true)}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#0f172a] px-5 py-2.5 text-xs font-bold text-white shadow-md transition hover:bg-[#1e293b]"
                 >
-                  <span className="text-base leading-none">+</span> New Project
+                  <span className="text-base leading-none">+</span>
+                  New Project
                 </button>
-                <button type="button" className="inline-flex items-center gap-2 rounded-xl border border-[#cbd5e1] bg-white px-4 py-2.5 text-xs font-bold text-[#334155] shadow-sm transition hover:bg-[#f8fafc]">
+
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#cbd5e1] bg-white px-4 py-2.5 text-xs font-bold text-[#334155] shadow-sm transition hover:bg-[#f8fafc]"
+                >
                   Documentation
                 </button>
+
                 <div className="hidden items-center gap-2 rounded-xl border border-[#cfe0ce] bg-[#e4efe2] px-3.5 py-2 text-xs font-medium text-[#475569] sm:inline-flex">
                   <span className="h-2 w-2 rounded-full bg-[#10b981]" />
                   All services operational
@@ -179,15 +269,22 @@ function ProjectPageContent() {
             </div>
           </section>
 
+          {/* Summary cards */}
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-[#d2ded1] bg-white/90 p-5 shadow-sm">
               <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[#64748b]">
                 Total Projects
-                <span className="rounded-lg bg-[#eaf4e8] p-1.5 text-[#2d6a4f]">▣</span>
+                <span className="rounded-lg bg-[#eaf4e8] p-1.5 text-[#2d6a4f]">
+                  ▣
+                </span>
               </div>
               <div className="mt-4 flex items-baseline justify-between">
-                <span className="text-3xl font-black text-[#0f172a]">{loading ? '--' : projects.length}</span>
-                <span className="text-[11px] font-semibold text-[#64748b]">Live API</span>
+                <span className="text-3xl font-black text-[#0f172a]">
+                  {loading ? '--' : projects.length}
+                </span>
+                <span className="text-[11px] font-semibold text-[#64748b]">
+                  Live API
+                </span>
               </div>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#10b981]" />
             </div>
@@ -195,11 +292,17 @@ function ProjectPageContent() {
             <div className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-[#d2ded1] bg-white/90 p-5 shadow-sm">
               <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[#64748b]">
                 Active Workspaces
-                <span className="rounded-lg bg-[#eaf4e8] p-1.5 text-[#2d6a4f]">◇</span>
+                <span className="rounded-lg bg-[#eaf4e8] p-1.5 text-[#2d6a4f]">
+                  ◇
+                </span>
               </div>
               <div className="mt-4 flex items-baseline justify-between">
-                <span className="text-3xl font-black text-[#0f172a]">{loading ? '--' : projects.length}</span>
-                <span className="text-[11px] font-semibold text-[#64748b]">Connected</span>
+                <span className="text-3xl font-black text-[#0f172a]">
+                  {loading ? '--' : projects.length}
+                </span>
+                <span className="text-[11px] font-semibold text-[#64748b]">
+                  Connected
+                </span>
               </div>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#0ea5e9]" />
             </div>
@@ -207,14 +310,22 @@ function ProjectPageContent() {
             <div className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-[#d2ded1] bg-white/90 p-5 shadow-sm">
               <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[#64748b]">
                 Lead Maintainer
-                <span className="rounded-lg bg-[#fef3c7] p-1.5 text-[#d97706]">◎</span>
+                <span className="rounded-lg bg-[#fef3c7] p-1.5 text-[#d97706]">
+                  ◎
+                </span>
               </div>
               <div className="mt-4 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-bold text-[#0f172a]">Session User</p>
-                  <p className="mt-0.5 text-[11px] text-[#64748b]">API Authenticated</p>
+                  <p className="text-sm font-bold text-[#0f172a]">
+                    Session User
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-[#64748b]">
+                    API Authenticated
+                  </p>
                 </div>
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0f172a] text-[10px] font-bold text-white">SU</span>
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0f172a] text-[10px] font-bold text-white">
+                  SU
+                </span>
               </div>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#f59e0b]" />
             </div>
@@ -222,21 +333,29 @@ function ProjectPageContent() {
             <div className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-[#d2ded1] bg-white/90 p-5 shadow-sm">
               <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[#64748b]">
                 Last Sync
-                <span className="rounded-lg bg-[#e0f2fe] p-1.5 text-[#0284c7]">↻</span>
+                <span className="rounded-lg bg-[#e0f2fe] p-1.5 text-[#0284c7]">
+                  ↻
+                </span>
               </div>
               <div className="mt-4 flex items-baseline justify-between">
-                <span className="text-2xl font-black text-[#0f172a]">--:--</span>
+                <span className="text-2xl font-black text-[#0f172a]">
+                  --:--
+                </span>
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-[#10b981]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#10b981]" /> Ready
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#10b981]" />
+                  Ready
                 </span>
               </div>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#8b5cf6]" />
             </div>
           </section>
 
+          {/* Search and filters */}
           <section className="flex flex-col gap-3 rounded-2xl border border-[#d2ded1] bg-white/90 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="relative w-full sm:w-96">
-              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[#94a3b8]">⌕</span>
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[#94a3b8]">
+                ⌕
+              </span>
               <input
                 type="search"
                 value={searchQuery}
@@ -244,15 +363,24 @@ function ProjectPageContent() {
                 placeholder="Search projects by title, tags..."
                 className="w-full rounded-xl border border-[#e2e8f0] bg-white py-2 pl-9 pr-10 text-xs text-[#0f172a] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-[#0f172a]"
               />
-              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center rounded border border-[#e2e8f0] bg-[#f1f5f9] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#94a3b8]">⌘K</span>
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center rounded border border-[#e2e8f0] bg-[#f1f5f9] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#94a3b8]">
+                ⌘K
+              </span>
             </div>
+
             <div className="flex gap-2 overflow-x-auto">
-              {(['All Projects', 'Healthcare', 'Community'] as const).map((tab) => (
+              {(
+                ['All Projects', 'Healthcare', 'Community'] as const
+              ).map((tab) => (
                 <button
                   key={tab}
                   type="button"
                   onClick={() => setSelectedFilter(tab)}
-                  className={`whitespace-nowrap rounded-lg px-4 py-1.5 text-xs font-bold transition ${selectedFilter === tab ? 'bg-[#0f172a] text-white shadow-sm' : 'bg-[#f1f5f9] text-[#64748b] hover:bg-[#e2e8f0]'}`}
+                  className={`whitespace-nowrap rounded-lg px-4 py-1.5 text-xs font-bold transition ${
+                    selectedFilter === tab
+                      ? 'bg-[#0f172a] text-white shadow-sm'
+                      : 'bg-[#f1f5f9] text-[#64748b] hover:bg-[#e2e8f0]'
+                  }`}
                 >
                   {tab}
                 </button>
@@ -261,11 +389,15 @@ function ProjectPageContent() {
           </section>
 
           {error && (
-            <section className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700" role="alert">
+            <section
+              className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700"
+              role="alert"
+            >
               {error}
             </section>
           )}
 
+          {/* Project cards */}
           <section className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map((project) => (
               <div
@@ -274,25 +406,37 @@ function ProjectPageContent() {
               >
                 <div className="space-y-4">
                   <div className="flex items-center justify-between text-xs font-semibold">
-                    <span className={`rounded px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${project.categoryColor === 'green' ? 'bg-[#e8f5e9] text-[#2e7d32]' : 'bg-[#e0f2fe] text-[#0369a1]'}`}>
+                    <span
+                      className={`rounded px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        project.categoryColor === 'green'
+                          ? 'bg-[#e8f5e9] text-[#2e7d32]'
+                          : 'bg-[#e0f2fe] text-[#0369a1]'
+                      }`}
+                    >
                       {project.category}
                     </span>
-                    <span className="text-[11px] font-medium text-[#64748b]">{project.date}</span>
+                    <span className="text-[11px] font-medium text-[#64748b]">
+                      {project.date}
+                    </span>
                   </div>
 
                   <div>
-                    <h3 className="text-xl font-extrabold text-[#0f172a]">{project.name}</h3>
+                    <h3 className="text-xl font-extrabold text-[#0f172a]">
+                      {project.name}
+                    </h3>
                     <p className="mt-2 text-xs leading-relaxed text-[#64748b]">
                       {project.description || 'No description provided.'}
                     </p>
                   </div>
 
-                  {/* Members row — first letter of first name, same style as owner avatar */}
+                  {/* Project members */}
                   <div className="flex items-center gap-2">
                     <div className="flex -space-x-2">
                       {project.members.length > 0 ? (
                         project.members.slice(0, 5).map((member, idx) => {
-                          const initial = member.name.trim().charAt(0).toUpperCase() || '?';
+                          const initial =
+                            member.name.trim().charAt(0).toUpperCase() || '?';
+
                           const palettes = [
                             'bg-[#0f172a] text-white',
                             'bg-[#10b981] text-white',
@@ -300,7 +444,9 @@ function ProjectPageContent() {
                             'bg-[#f59e0b] text-white',
                             'bg-[#8b5cf6] text-white',
                           ];
+
                           const palette = palettes[idx % palettes.length];
+
                           return (
                             <span
                               key={member.id}
@@ -326,13 +472,15 @@ function ProjectPageContent() {
 
                     <span className="text-[11px] font-medium text-[#64748b]">
                       {project.members.length > 0
-                        ? `${project.members.length} member${project.members.length > 1 ? 's' : ''}`
+                        ? `${project.members.length} member${
+                            project.members.length > 1 ? 's' : ''
+                          }`
                         : 'No members'}
                     </span>
                   </div>
                 </div>
 
-                {/* Footer: Edit + Delete icons on the left, Open Project on the right */}
+                {/* Edit + Delete icons and Open Project */}
                 <div className="mt-6 flex items-center justify-between border-t border-[#f1f5f9] pt-6">
                   <div className="flex items-center gap-1">
                     {/* EDIT ICON */}
@@ -345,7 +493,8 @@ function ProjectPageContent() {
                     >
                       <img
                         src="https://d1nhio0ox7pgb.cloudfront.net/_img/o_collection_png/green_dark_grey/512x512/plain/edit.png"
-                        alt="Edit"
+                        alt="
+                      "
                         className="h-4 w-4 object-contain"
                       />
                     </button>
@@ -353,12 +502,11 @@ function ProjectPageContent() {
                     {/* DELETE ICON */}
                     <button
                       type="button"
-                      aria-label={`Delete ${project.name}`}
-                      title="Delete project"
-                      onClick={() => {
-                        // TODO: wire to your existing delete handler
-                        // e.g. dispatch(deleteProject(Number(project.id)))
-                      }}
+                      aria-label={`Deactivate ${project.name}`}
+                      title="Deactivate project"
+                      onClick={() =>
+                        handleOpenDeleteConfirmation(project)
+                      }
                       className="rounded-lg p-2 text-[#64748b] transition hover:bg-rose-50 hover:text-rose-600"
                     >
                       <img
@@ -379,27 +527,37 @@ function ProjectPageContent() {
               </div>
             ))}
 
+            {/* Create new project card */}
             <button
               type="button"
               onClick={() => setIsCreateProjectOpen(true)}
               className="group flex min-h-[300px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#c3d5c2] bg-[#eef3ec]/70 p-6 text-center transition hover:border-[#10b981] hover:bg-white hover:shadow-md"
             >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-[#d2ded1] bg-white text-[#475569] text-2xl shadow-sm transition group-hover:scale-110 group-hover:text-[#10b981]">+</div>
-              <h4 className="text-base font-bold text-[#0f172a] transition group-hover:text-[#10b981]">Create New Project</h4>
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-[#d2ded1] bg-white text-2xl text-[#475569] shadow-sm transition group-hover:scale-110 group-hover:text-[#10b981]">
+                +
+              </div>
+              <h4 className="text-base font-bold text-[#0f172a] transition group-hover:text-[#10b981]">
+                Create New Project
+              </h4>
               <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-[#64748b]">
-                Bootstrap a repo, configure automated workflows, or import from GitHub.
+                Bootstrap a repo, configure automated workflows, or import
+                from GitHub.
               </p>
             </button>
           </section>
 
+          {/* Create project overlay */}
           {isCreateProjectOpen && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6">
               <div className="w-full max-w-6xl overflow-hidden rounded-[28px] shadow-2xl">
-                <CreateNewProjectForm onClose={() => setIsCreateProjectOpen(false)} />
+                <CreateNewProjectForm
+                  onClose={() => setIsCreateProjectOpen(false)}
+                />
               </div>
             </div>
           )}
 
+          {/* Edit project overlay */}
           {selectedProject && (
             <EditProjectForm
               project={selectedProject}
@@ -408,12 +566,141 @@ function ProjectPageContent() {
             />
           )}
 
+          {/* Delete project confirmation popup */}
+          {projectToDelete && (
+            <div
+              className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+              onClick={handleCancelDelete}
+            >
+              <div
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="delete-project-title"
+                aria-describedby="delete-project-description"
+                className="w-full max-w-md rounded-2xl border border-[#d2ded1] bg-[#edf3ec] p-6 shadow-2xl sm:p-7"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {/* Warning icon and heading */}
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-rose-200 bg-rose-50">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      className="h-6 w-6 text-rose-600"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 9v4m0 4h.01M10.3 3.86 2.9 17a2 2 0 0 0 1.74 3h14.72a2 2 0 0 0 1.74-3l-7.4-13.14a2 2 0 0 0-3.4 0Z"
+                      />
+                    </svg>
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <h2
+                      id="delete-project-title"
+                      className="text-lg font-extrabold text-[#0f172a]"
+                    >
+                      Deactivate this project?
+                    </h2>
+
+                    <p className="mt-2 break-words text-sm font-semibold text-[#334155]">
+                      {projectToDelete.name}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleCancelDelete}
+                    disabled={deleting}
+                    aria-label="Close confirmation"
+                    className="rounded-lg p-1.5 text-[#64748b] transition hover:bg-white hover:text-[#0f172a] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="h-5 w-5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m6 6 12 12M18 6 6 18"
+                      />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Confirmation message */}
+                <p
+                  id="delete-project-description"
+                  className="mt-5 text-sm leading-6 text-[#475569]"
+                >
+                  Are you sure you want to deactivate{' '}
+                  <span className="font-semibold text-[#0f172a]">
+                    {projectToDelete.name}
+                  </span>
+                  ? This project will be removed from your active project
+                  list. Please confirm if you want to continue.
+                </p>
+
+                {/* Show API error if deletion fails */}
+                {deleteError && (
+                  <div
+                    role="alert"
+                    className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+                  >
+                    {deleteError}
+                  </div>
+                )}
+
+                {/* Confirmation buttons */}
+                <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={handleCancelDelete}
+                    disabled={deleting}
+                    className="rounded-xl border border-[#cbd5e1] bg-white px-5 py-2.5 text-sm font-bold text-[#334155] transition hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleConfirmDelete}
+                    disabled={deleting}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {deleting && (
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    )}
+                    {deleting ? 'Deactivating...' : 'Yes, deactivate'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
           <footer className="mx-auto mt-10 flex max-w-[1440px] flex-col gap-3 border-t border-[#cad8c9] pt-4 text-xs text-[#64748b] sm:flex-row sm:items-center sm:justify-between">
             <span>© 2026 NANDGATE Inc. All systems operational.</span>
             <div className="flex gap-6 font-medium">
-              <a href="#security" className="hover:text-[#0f172a]">Security</a>
-              <a href="#privacy" className="hover:text-[#0f172a]">Privacy</a>
-              <a href="#docs" className="hover:text-[#0f172a]">Docs</a>
+              <a href="#security" className="hover:text-[#0f172a]">
+                Security
+              </a>
+              <a href="#privacy" className="hover:text-[#0f172a]">
+                Privacy
+              </a>
+              <a href="#docs" className="hover:text-[#0f172a]">
+                Docs
+              </a>
             </div>
           </footer>
         </div>

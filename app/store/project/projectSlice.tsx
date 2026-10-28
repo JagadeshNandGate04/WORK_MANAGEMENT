@@ -56,6 +56,8 @@ interface ProjectState {
    updating: boolean;
   updateError: string | null;
   updatedProject: ProjectData | null;
+deleting: boolean;
+deleteError: string | null;
 }
 
 const initialState: ProjectState = {
@@ -68,6 +70,8 @@ const initialState: ProjectState = {
   updating: false,
   updateError: null,
   updatedProject: null,
+deleting: false,
+deleteError: null,
 
 };
 
@@ -148,6 +152,31 @@ const projectSlice = createSlice({
       state.updateError = null;
       state.updatedProject = null;
     },
+    // Delete project
+deleteProjectStart(state) {
+  state.deleting = true;
+  state.deleteError = null;
+},
+
+deleteProjectSuccess(state, action: PayloadAction<number>) {
+  state.deleting = false;
+  state.deleteError = null;
+
+  // Remove the deactivated project from the displayed list
+  state.data = state.data.filter(
+    (project) => project.id !== action.payload
+  );
+},
+
+deleteProjectFailure(state, action: PayloadAction<string>) {
+  state.deleting = false;
+  state.deleteError = action.payload;
+},
+
+clearDeleteProjectError(state) {
+  state.deleteError = null;
+},
+    
   },
 });
 
@@ -164,6 +193,10 @@ export const {
   updateProjectSuccess,
   updateProjectFailure,
   resetUpdateProjectState,
+  deleteProjectStart,
+deleteProjectSuccess,
+deleteProjectFailure,
+clearDeleteProjectError,
 } = projectSlice.actions;
 
 export default projectSlice.reducer;
@@ -307,6 +340,68 @@ export const updateProject =
       const message =
         error instanceof Error ? error.message : 'Unable to update project.';
       dispatch(updateProjectFailure(message));
+      return { success: false, message };
+    }
+  };
+
+  // DELETE PROJECT
+
+
+export const deleteProject =
+  (projectId: number) =>
+  async (dispatch: AppDispatch, getState: () => RootState) => {
+    dispatch(deleteProjectStart());
+
+    try {
+      const token = getState().auth.token;
+
+      if (!token) {
+        const message = 'You must be signed in to delete a project.';
+        dispatch(deleteProjectFailure(message));
+        return { success: false, message };
+      }
+
+      if (!Number.isInteger(projectId) || projectId <= 0) {
+        const message = 'Invalid project ID.';
+        dispatch(deleteProjectFailure(message));
+        return { success: false, message };
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.success) {
+        const message =
+          result.message || 'Unable to deactivate project.';
+
+        dispatch(deleteProjectFailure(message));
+        return { success: false, message };
+      }
+
+      // The API confirms success; remove this project from Redux state.
+      dispatch(deleteProjectSuccess(projectId));
+
+      return {
+        success: true,
+        message: result.message || 'Project deactivated successfully.',
+        data: result.data,
+      };
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unable to deactivate project.';
+
+      dispatch(deleteProjectFailure(message));
       return { success: false, message };
     }
   };
